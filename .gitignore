@@ -16,3 +16,22 @@ benchmarks/splash-3/codes/kernels/*/RADIX
 # gem5 output
 m5out/
 results/raw/
+
+# Rodinia compiled binaries (rebuilt by build_rodinia.sh, don't commit)
+benchmarks/rodinia_3.1/openmp/b+tree/penmp
+benchmarks/rodinia_3.1/openmp/backprop/backprop
+benchmarks/rodinia_3.1/openmp/bfs/bfs
+benchmarks/rodinia_3.1/openmp/hotspot/hotspot
+benchmarks/rodinia_3.1/openmp/hotspot3D/3D
+benchmarks/rodinia_3.1/openmp/kmeans/kmeans_openmp/kmeans
+benchmarks/rodinia_3.1/openmp/kmeans/kmeans_serial/kmeans
+benchmarks/rodinia_3.1/openmp/lud/omp/lud_omp
+benchmarks/rodinia_3.1/openmp/nn/hurricane_gen
+benchmarks/rodinia_3.1/openmp/nn/nn
+benchmarks/rodinia_3.1/openmp/nw/needle
+benchmarks/rodinia_3.1/openmp/particlefilter/particle_filter
+benchmarks/rodinia_3.1/openmp/pathfinder/pathfinder
+benchmarks/rodinia_3.1/openmp/srad/srad_v1/srad
+benchmarks/rodinia_3.1/openmp/srad/srad_v2/srad
+benchmarks/rodinia_3.1/openmp/streamcluster/sc_cpu
+benchmarks/rodinia_3.1/openmp/streamcluster/sc_omp
