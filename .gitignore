@@ -1,0 +1,18 @@
+
+# SPLASH-3 build artifacts
+benchmarks/splash-3/codes/**/*.o
+benchmarks/splash-3/codes/apps/*/*/OCEAN
+benchmarks/splash-3/codes/apps/*/BARNES
+benchmarks/splash-3/codes/apps/*/FMM
+benchmarks/splash-3/codes/apps/*/RADIOSITY
+benchmarks/splash-3/codes/apps/*/RAYTRACE
+benchmarks/splash-3/codes/apps/*/VOLREND
+benchmarks/splash-3/codes/apps/*/WATER-*
+benchmarks/splash-3/codes/kernels/*/CHOLESKY
+benchmarks/splash-3/codes/kernels/*/FFT
+benchmarks/splash-3/codes/kernels/*/LU*
+benchmarks/splash-3/codes/kernels/*/RADIX
+
+# gem5 output
+m5out/
+results/raw/
