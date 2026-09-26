@@ -23,6 +23,7 @@ fi
 echo "Repo root:  ${REPO_ROOT}"
 echo "SPLASH-3:   ${SPLASH_DIR}"
 echo "gem5 root:  ${GEM5_ROOT}"
+export GEM5_ROOT
 
 # --- 1. Set BASEDIR in Makefile.config to this checkout's absolute path ---
 CONFIG_FILE="${SPLASH_DIR}/Makefile.config"

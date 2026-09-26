@@ -1,8 +1,8 @@
 # Cross-compile changes by Thomas E. Hansen (CodingCellist) 2021-03-08
 
 CC := $(TOOLCHAIN_PREFIX)gcc
-CFLAGS := -O2 -pthread -D_XOPEN_SOURCE=500 -D_POSIX_C_SOURCE=200112 -std=c11 -g -fno-strict-aliasing
-LDFLAGS := -lm
+CFLAGS := -O2 -pthread -D_XOPEN_SOURCE=500 -D_POSIX_C_SOURCE=200112 -std=c11 -g -fno-strict-aliasing -I$(GEM5_ROOT)/include -static
+LDFLAGS := -lm -L$(GEM5_ROOT)/util/m5/build/x86/out -lm5
 
 # BASEDIR needs to be set to the same directory as this Makefile
 # BASEDIR := $(HOME)/Splash-3/codes
