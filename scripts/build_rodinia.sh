@@ -32,12 +32,25 @@ declare -A BUILD_TARGET=(
 EXCLUDE=("mummergpu")
 
 FAILED=()
+
+# Rodinia 3.1 contains legacy C (K&R definitions, implicit int/function
+# declarations, and a few incompatible pointer calls).  GCC 14 and newer
+# diagnose several of these as errors, while older GCC releases only emitted
+# warnings.  Pin the language mode used by the older releases and keep those
+# diagnostics as warnings.  Put the options in CC itself because a number of
+# Rodinia Makefiles ignore CFLAGS; command-line make variables are also passed
+# through to recursive makes (for example, kmeans).
+RODINIA_CC="${CC:-gcc} -std=gnu17 -Wno-error=implicit-int -Wno-error=implicit-function-declaration -Wno-error=incompatible-pointer-types"
+RODINIA_CXX="${CXX:-g++} -std=gnu++17"
+
 build_dir() {
     local dir="$1"
     local label="$2"
     local target="${BUILD_TARGET[${label}]:-}"
     echo "=== Building ${label} ${target:+(target: $target)} ==="
     if ! (cd "${dir}" && make ${target} \
+            CC="${RODINIA_CC}" \
+            CXX="${RODINIA_CXX}" \
             CFLAGS="-fopenmp -static -O2" \
             CXXFLAGS="-fopenmp -static -O2" \
             LDFLAGS="-fopenmp -static"); then
