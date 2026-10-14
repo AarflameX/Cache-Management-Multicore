@@ -6,7 +6,7 @@ LDFLAGS := -lm -L$(GEM5_ROOT)/util/m5/build/x86/out -lm5
 
 # BASEDIR needs to be set to the same directory as this Makefile
 # BASEDIR := $(HOME)/Splash-3/codes
-BASEDIR = /home/aarneshjaiswal/Gem5Workspace/Cache-Management-Multicore/benchmarks/splash-3/codes
+BASEDIR = /home/dhruv/Gem5Workspace/Cache-Management-Multicore/benchmarks/splash-3/codes
 MACROS := $(BASEDIR)/pthread_macros/pthread.m4.stougie
 M4 := m4 -Ulen -Uindex
 

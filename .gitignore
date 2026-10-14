@@ -17,6 +17,26 @@ benchmarks/splash-3/codes/kernels/*/RADIX
 m5out/
 results/raw/
 
+# SPLASH-4 generated sources, objects, archives, and executable binaries
+benchmarks/Splash-4/Splash-4/**/*.o
+benchmarks/Splash-4/Splash-4/**/*.a
+benchmarks/Splash-4/Splash-4/*/*.c
+benchmarks/Splash-4/Splash-4/*/*.h
+benchmarks/Splash-4/Splash-4/*/BARNES*
+benchmarks/Splash-4/Splash-4/*/CHOLESKY*
+benchmarks/Splash-4/Splash-4/*/FFT*
+benchmarks/Splash-4/Splash-4/*/FMM*
+benchmarks/Splash-4/Splash-4/*/LU-*
+benchmarks/Splash-4/Splash-4/*/OCEAN-*
+benchmarks/Splash-4/Splash-4/*/RADIOSITY*
+benchmarks/Splash-4/Splash-4/*/RADIX*
+benchmarks/Splash-4/Splash-4/*/RAYTRACE*
+benchmarks/Splash-4/Splash-4/*/VOLREND*
+benchmarks/Splash-4/Splash-4/*/WATER-*
+benchmarks/Splash-4/Splash-4/*/libtiff/mkg3states
+benchmarks/Splash-4/Splash-4/*/libtiff/g3states.h
+__pycache__/
+
 # Rodinia compiled binaries (rebuilt by build_rodinia.sh, don't commit)
 benchmarks/rodinia_3.1/openmp/b+tree/penmp
 benchmarks/rodinia_3.1/openmp/backprop/backprop
