@@ -1,0 +1,29 @@
+diff --git a/Makefile b/Makefile
+--- a/Makefile
++++ b/Makefile
+@@ -26,3 +26,3 @@ all: $(SUITE)
+ % : src/%.cc src/*.h
+-	$(CXX) $(CXX_FLAGS) $< -o $@
++	$(CXX) $(CXX_FLAGS) $< -o $@ $(ROI_LIBS)
+ 
+diff --git a/src/benchmark.h b/src/benchmark.h
+--- a/src/benchmark.h
++++ b/src/benchmark.h
+@@ -5,3 +5,7 @@
+ #define BENCHMARK_H_
+ 
++#ifdef ENABLE_ROI
++#include <gem5/m5ops.h>
++#endif
++
+ #include <algorithm>
+@@ -107,3 +111,9 @@
+     trial_timer.Start();
++#ifdef ENABLE_ROI
++    m5_reset_stats(0, 0);
++#endif
+     auto result = kernel(g);
++#ifdef ENABLE_ROI
++    m5_dump_stats(0, 0);
++#endif
+     trial_timer.Stop();

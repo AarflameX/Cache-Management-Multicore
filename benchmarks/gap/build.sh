@@ -13,12 +13,43 @@ elif [[ ! -f "$source_dir/Makefile" || ! -f "$source_dir/src/bfs.cc" ]]; then
     exit 1
 fi
 kernels=(bfs pr cc sssp bc tc)
+if (( $# )); then
+    kernels=("$@")
+fi
+for kernel in "${kernels[@]}"; do
+    case "$kernel" in
+        bfs|pr|cc|sssp|bc|tc) ;;
+        *) echo "ERROR: unsupported GAP kernel: $kernel" >&2; exit 1 ;;
+    esac
+done
+flags='-std=c++11 -O3 -Wall -fopenmp -static -march=x86-64'
+roi_libs=''
+output_dir="${suite_dir}/bin"
+case "${ENABLE_ROI:-0}" in
+    0) ;;
+    1)
+        gem5_root="${GEM5_ROOT:-$HOME/gem5}"
+        roi_libs="${gem5_root}/util/m5/build/x86/out/libm5.a"
+        [[ -f "$roi_libs" && -f "${gem5_root}/include/gem5/m5ops.h" ]] || {
+            echo "ERROR: build libm5 first: cd ${gem5_root}/util/m5 && scons build/x86/out/libm5.a" >&2
+            exit 1
+        }
+        # Sources are ignored by Git; keep instrumentation in a tracked patch.
+        if ! git -C "$source_dir" apply --reverse --check "${suite_dir}/roi.patch" 2>/dev/null; then
+            git -C "$source_dir" apply --check "${suite_dir}/roi.patch"
+            git -C "$source_dir" apply "${suite_dir}/roi.patch"
+        fi
+        flags+=" -DENABLE_ROI -I${gem5_root}/include"
+        output_dir="${suite_dir}/bin-roi"
+        ;;
+    *) echo 'ERROR: ENABLE_ROI must be 0 or 1' >&2; exit 1 ;;
+esac
 # Force rebuilding so existing dynamically linked binaries cannot be reused.
 make -B -C "$source_dir" -j "${JOBS:-2}" "${kernels[@]}" \
     CXX="${CXX:-g++}" \
-    CXX_FLAGS='-std=c++11 -O3 -Wall -fopenmp -static -march=x86-64'
-mkdir -p "${suite_dir}/bin"
+    CXX_FLAGS="$flags" ROI_LIBS="$roi_libs"
+mkdir -p "$output_dir"
 for kernel in "${kernels[@]}"; do
-    install -m 755 "${source_dir}/${kernel}" "${suite_dir}/bin/${kernel}"
+    install -m 755 "${source_dir}/${kernel}" "${output_dir}/${kernel}"
 done
-echo "Built static GAP binaries in ${suite_dir}/bin"
+echo "Built static GAP binaries in ${output_dir}"

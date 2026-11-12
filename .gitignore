@@ -1,6 +1,7 @@
 # Suite build products
 benchmarks/*/src/
 benchmarks/*/bin/
+benchmarks/gap/bin-roi/
 
 # gem5 output
 m5out/
