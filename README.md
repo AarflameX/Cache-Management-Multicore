@@ -52,6 +52,30 @@ The runner works from any directory. gem5 writes `m5out/`, including
 to exit with status 0 and produce non-empty stats. Generated sources, binaries,
 `results/`, and `m5out/` are ignored by Git and must be regenerated locally.
 
+For GAP kernel-only statistics, build the x86 m5ops library once, then enable
+ROI instrumentation (an optional kernel list limits which binaries are built):
+
+```bash
+(cd ~/gem5/util/m5 && scons build/x86/out/libm5.a)
+ENABLE_ROI=1 ./benchmarks/gap/build.sh bfs
+./run_benchmark.sh --suite gap --benchmark bfs --roi --cores 2 --args "-g 10 -n 1"
+```
+
+`GEM5_ROOT` overrides `~/gem5` for benchmark headers and libm5. ROI binaries
+install into `benchmarks/gap/bin-roi/`, leaving `bin/` untouched. With
+`ENABLE_ROI` unset or zero, builds use the usual `bin/` and omit m5ops.
+Instrumented binaries must run under gem5; instruction-based m5ops cannot
+run directly on the host. SPLASH-4 is unchanged.
+
+Each GAP trial resets statistics immediately before the kernel and dumps them
+immediately afterward, excluding graph generation, verification, and analysis.
+The reset does not flush caches. gem5 also emits a final exit dump, so use the
+first block for the first trial (`-n 1` requests one trial):
+
+```bash
+awk '/Begin Simulation Statistics/ {printing=1} printing {print} /End Simulation Statistics/ && printing {exit}' m5out/stats.txt
+```
+
 Additional suites should follow this layout, with `build.sh` resolving paths
 relative to itself and installing Linux x86-64 executables into `bin/`:
 
