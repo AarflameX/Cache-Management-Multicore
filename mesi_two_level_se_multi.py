@@ -11,6 +11,7 @@ Usage:
 
 
 import argparse
+import shlex
 from gem5.utils.requires import requires
 from gem5.isas import ISA
 from gem5.coherence_protocol import CoherenceProtocol
@@ -31,15 +32,24 @@ parser.add_argument("--binary", required=True)
 parser.add_argument("--cores", type=int, default=2)
 parser.add_argument("--args", nargs=argparse.REMAINDER, default=[])
 parsed = parser.parse_args()
+if len(parsed.args) == 1:
+    try:
+        parsed.args = shlex.split(parsed.args[0])
+    except ValueError as error:
+        parser.error(f"invalid --args: {error}")
+
+NUM_L2_BANKS = 2
+if parsed.cores <= 0 or parsed.cores % NUM_L2_BANKS:
+    parser.error(f"--cores must be a positive multiple of {NUM_L2_BANKS}")
 
 cache_hierarchy = MESITwoLevelCacheHierarchy(
     l1i_size="32KiB", l1i_assoc=2,
     l1d_size="32KiB", l1d_assoc=2,
     l2_size="256KiB", l2_assoc=8,
-    num_l2_banks=2,
+    num_l2_banks=NUM_L2_BANKS,
 )
 memory = SingleChannelDDR4_2400(size="2GiB")
-processor = SimpleProcessor(cpu_type=CPUTypes.MINOR, isa=ISA.X86, num_cores=parsed.cores)
+processor = SimpleProcessor(cpu_type=CPUTypes.TIMING, isa=ISA.X86, num_cores=parsed.cores)
 board = SimpleBoard(clk_freq="3GHz", processor=processor, memory=memory, cache_hierarchy=cache_hierarchy)
 
 # Critical: OpenMP benchmarks read thread count from OMP_NUM_THREADS at
@@ -50,7 +60,13 @@ board = SimpleBoard(clk_freq="3GHz", processor=processor, memory=memory, cache_h
 board.set_se_binary_workload(
     binary=BinaryResource(local_path=parsed.binary),
     arguments=parsed.args,
-    env_list=[f"OMP_NUM_THREADS={parsed.cores}"],
+    # Park OpenMP workers promptly so exit_group does not halt a spinning CPU
+    # while it has a pending memory operation in TimingSimpleCPU.
+    env_list=[
+        f"OMP_NUM_THREADS={parsed.cores}",
+        "OMP_WAIT_POLICY=PASSIVE",
+        "GOMP_SPINCOUNT=1",
+    ],
 )
 
 simulator = Simulator(board=board)
