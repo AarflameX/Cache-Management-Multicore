@@ -19,11 +19,49 @@ fi
 }
 # Upstream invokes m4 -Ulen -Uindex -P with pthread.m4, generating C11
 # atomics and pthread code. Keep ATOMIC_BARRIERS enabled in both m4 and C.
-mkdir -p "${suite_dir}/bin"
+output_dir="${suite_dir}/bin"
+roi_flags=''
+roi_libs=''
+case "${ENABLE_ROI:-0}" in
+    0) ;;
+    1)
+        gem5_root="${GEM5_ROOT:-$HOME/gem5}"
+        roi_libs="${gem5_root}/util/m5/build/x86/out/libm5.a"
+        [[ -f "$roi_libs" && -f "${gem5_root}/include/gem5/m5ops.h" ]] || {
+            echo "ERROR: build libm5 first: cd ${gem5_root}/util/m5 && scons build/x86/out/libm5.a" >&2
+            exit 1
+        }
+        if ! git -C "$source_dir" apply --reverse --check "${suite_dir}/roi.patch" 2>/dev/null; then
+            git -C "$source_dir" apply --check "${suite_dir}/roi.patch"
+            git -C "$source_dir" apply "${suite_dir}/roi.patch"
+        fi
+        roi_flags=" -DENABLE_ROI -I${gem5_root}/include"
+        output_dir="${suite_dir}/bin-roi"
+        ;;
+    *) echo 'ERROR: ENABLE_ROI must be 0 or 1' >&2; exit 1 ;;
+esac
+# Optional target selection also makes small non-ROI rebuilds possible.
+for requested in "$@"; do
+    case "$requested" in
+        FFT|LU-CONT|RADIX) ;;
+        *) echo "ERROR: unsupported selected target: $requested" >&2; exit 1 ;;
+    esac
+done
+mkdir -p "$output_dir"
 # Each benchmark makefile declares its executable name in TARGET.
 for makefile in "$source_dir"/Splash-4/*/Makefile; do
     target="$(sed -n 's/^TARGET[[:space:]]*=[[:space:]]*//p' "$makefile")"
     [[ -n "$target" ]] || continue
+    if (( $# )); then
+        selected=0
+        for requested in "$@"; do
+            [[ "$target" != "$requested" ]] || selected=1
+        done
+        (( selected )) || continue
+    fi
+    if [[ "${ENABLE_ROI:-0}" == 1 ]]; then
+        case "$target" in FFT|LU-CONT|RADIX) ;; *) continue ;; esac
+    fi
     flags='-O2 -pthread -D_XOPEN_SOURCE=500 -D_POSIX_C_SOURCE=200112 -std=c11 -fno-strict-aliasing -D ATOMIC_BARRIERS -march=x86-64 -I./libtiff -I./glibdumb -I./glibps'
     case "$target" in
         VOLREND*)
@@ -34,8 +72,8 @@ for makefile in "$source_dir"/Splash-4/*/Makefile; do
     esac
     # Upstream leaf makefiles have executable targets rather than an all target.
     make -B -C "$(dirname -- "$makefile")" -j "${JOBS:-2}" "$target" CC="$compiler" \
-        CFLAGS="$flags" \
-        LDFLAGS='-static -no-pie -pthread -lm'
-    install -m 755 "$(dirname -- "$makefile")/$target" "${suite_dir}/bin/$target"
+        CFLAGS="$flags$roi_flags" \
+        LDFLAGS="-static -no-pie -pthread -lm $roi_libs"
+    install -m 755 "$(dirname -- "$makefile")/$target" "${output_dir}/$target"
 done
-echo "Built static SPLASH-4 binaries in ${suite_dir}/bin"
+echo "Built static SPLASH-4 binaries in ${output_dir}"

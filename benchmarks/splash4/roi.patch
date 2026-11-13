@@ -1,0 +1,165 @@
+diff --git a/Splash-4/fft/fft.c.in b/Splash-4/fft/fft.c.in
+--- a/Splash-4/fft/fft.c.in
++++ b/Splash-4/fft/fft.c.in
+@@ -44,6 +44,7 @@
+ /*************************************************************************/
+ 
+ #include <stdio.h>
++#include "../../roi.h"
+ #include <math.h>
+ #include <unistd.h>
+ #define PAGE_SIZE               4096
+@@ -321,12 +322,10 @@
+ 
+   /* fire off P processes */
+ 
+-  SPLASH4_ROI_BEGIN();
+ 
+   CREATE(SlaveStart, P);
+   WAIT_FOR_END(P);
+ 
+-  SPLASH4_ROI_END();
+ 
+   if (doprint) {
+     if (test_result) {
+@@ -459,8 +458,10 @@
+   TouchArray(x, trans, umain2, upriv, MyFirst, MyLast);
+   BARRIER(Global->start, P);
+ 
+-/* POSSIBLE ENHANCEMENT:  Here is where one might reset the
+-   statistics that one is measuring about the parallel execution */
++/* All workers have finished initialization at the preceding barrier. */
++  if (MyNum == 0) { ROI_BEGIN(); }
++  /* Nobody may compute until the reset is complete. */
++  BARRIER(Global->start, P);
+ 
+   if ((MyNum == 0) || (dostats)) {
+     CLOCK(initdone);
+@@ -475,6 +476,11 @@
+     FFT1D(-1, M, N, x, trans, upriv, umain2, MyNum, &l_transtime, MyFirst, 
+ 	  MyLast, pad_length, test_result, dostats);
+   }  
++
++  /* Wait for all computation; keep reporting behind the dump. */
++  BARRIER(Global->start, P);
++  if (MyNum == 0) { ROI_END(); }
++  BARRIER(Global->start, P);
+ 
+   if ((MyNum == 0) || (dostats)) {
+     CLOCK(finish);
+diff --git a/Splash-4/lu-contiguous_blocks/lu.c.in b/Splash-4/lu-contiguous_blocks/lu.c.in
+--- a/Splash-4/lu-contiguous_blocks/lu.c.in
++++ b/Splash-4/lu-contiguous_blocks/lu.c.in
+@@ -40,6 +40,7 @@
+ /*************************************************************************/
+ 
+ #include <stdio.h>
++#include "../../roi.h"
+ #include <math.h>
+ #include <stdlib.h>
+ #include <unistd.h>
+@@ -302,12 +303,10 @@
+     PrintA();
+   }
+ 
+-  SPLASH4_ROI_BEGIN();
+ 
+   CREATE(SlaveStart, P);
+   WAIT_FOR_END(P);
+ 
+-  SPLASH4_ROI_END();
+ 
+   if (doprint) {
+     printf("\nMatrix after decomposition:\n");
+@@ -449,14 +448,21 @@
+   
+   BARRIER(Global->start, P);
+ 
+-/* POSSIBLE ENHANCEMENT:  Here is where one might reset the
+-   statistics that one is measuring about the parallel execution */
++/* All workers have finished initialization at the preceding barrier. */
++  if (MyNum == 0) { ROI_BEGIN(); }
++  /* Nobody may compute until the reset is complete. */
++  BARRIER(Global->start, P);
+ 
+   if ((MyNum == 0) || (dostats)) {
+     CLOCK(myrs);
+   }
+ 
+   lu(n, block_size, MyNum, lc, dostats);
++
++  /* Wait for all computation; keep reporting behind the dump. */
++  BARRIER(Global->start, P);
++  if (MyNum == 0) { ROI_END(); }
++  BARRIER(Global->start, P);
+ 
+   if ((MyNum == 0) || (dostats)) {
+     CLOCK(mydone);
+diff --git a/Splash-4/radix/radix.c.in b/Splash-4/radix/radix.c.in
+--- a/Splash-4/radix/radix.c.in
++++ b/Splash-4/radix/radix.c.in
+@@ -37,6 +37,7 @@
+ /*************************************************************************/
+ 
+ #include <stdio.h>
++#include "../../roi.h"
+ #include <math.h>
+ #include <unistd.h>
+ 
+@@ -311,7 +312,6 @@
+    }  */
+ 
+    /* Fill the random-number array. */
+-   SPLASH4_ROI_BEGIN();
+ 
+    CREATE(slave_sort, number_of_processors);
+    WAIT_FOR_END(number_of_processors);
+@@ -364,7 +364,6 @@
+      printf("\n");
+    }
+ 
+-   SPLASH4_ROI_END();
+ 
+    printf("\n");
+    global->starttime = start;
+@@ -460,8 +459,9 @@
+ 
+    BARRIER(global->barrier_key, number_of_processors) 
+ 
+-/* POSSIBLE ENHANCEMENT:  Here is where one might reset the
+-   statistics that one is measuring about the parallel execution */
++/* All workers have finished initialization at the preceding barrier. */
++  if (MyNum == 0) { ROI_BEGIN(); }
++
+ 
+    BARRIER(global->barrier_key, number_of_processors) 
+ 
+@@ -636,6 +636,10 @@
+ 
+    BARRIER(global->barrier_rank, number_of_processors) 
+ 
++  /* Wait for all computation; keep reporting behind the dump. */
++   if (MyNum == 0) { ROI_END(); }
++   BARRIER(global->barrier_rank, number_of_processors)
++
+    if ((MyNum == 0) || (stats)) {
+      CLOCK(time6)
+      global->ranktime[MyNum] = ranktime;
+diff --git a/roi.h b/roi.h
+new file mode 100644
+--- /dev/null
++++ b/roi.h
+@@ -0,0 +1,13 @@
++#ifndef SPLASH4_ROI_H
++#define SPLASH4_ROI_H
++
++#ifdef ENABLE_ROI
++#include <gem5/m5ops.h>
++#define ROI_BEGIN() m5_reset_stats(0, 0)
++#define ROI_END() m5_dump_stats(0, 0)
++#else
++#define ROI_BEGIN() ((void)0)
++#define ROI_END() ((void)0)
++#endif
++
++#endif
