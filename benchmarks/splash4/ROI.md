@@ -121,3 +121,36 @@ energy output every two steps, two workers, and the default cutoff. Both steps
 are measured; this deliberately does not skip the first step as warmup.
 WATER-NSQUARED validation: static ROI build and native runs passed with ROI
 disabled and m5 logging stubs (one reset, then one dump), using that input.
+
+WATER-SPATIAL: reset after per-worker box lists and initial accelerations are
+ready at the pre-loop barrier. Dump after all timesteps, before MDMAIN returns
+to final reporting; entry/exit barriers protect ProcID 0's ops. Periodic energy
+output stays in the loop, as in WATER-NSQUARED.
+
+```sh
+ENABLE_ROI=1 benchmarks/splash4/build.sh WATER-SPATIAL
+repo="$PWD"
+(cd "$repo/benchmarks/splash4/src/Splash-4/water-spatial" && \
+ "$repo/run_benchmark.sh" --suite splash4 --benchmark WATER-SPATIAL --roi --cores 2 \
+ --input "$repo/benchmarks/splash4/inputs/water-spatial-small.in")
+```
+
+The spatial input also uses 64 molecules and two steps with the default cutoff;
+this creates 2x2x2 boxes, enough for two workers. WATER-SPATIAL validation:
+static ROI build and native runs passed with ROI disabled and m5 logging stubs
+(one reset, then one dump). Native checks are functional checks, not simulated
+performance measurements.
+
+Build all five batch 1 ROI binaries (leaving the original three and `bin/`
+binaries untouched):
+
+```sh
+ENABLE_ROI=1 GEM5_ROOT="$HOME/gem5" benchmarks/splash4/build.sh \
+  LU-NOCONT OCEAN-CONT OCEAN-NOCONT WATER-NSQUARED WATER-SPATIAL
+```
+
+Batch 1 integration checks: a fresh upstream archive accepted all patches and
+built these five static ROI binaries twice, confirming repeat-build patch
+checks. It created no `bin/` directory. Mock gem5 invocations verified runner
+binary selection, two-core forwarding, and WATER stdin-file forwarding.
+Shell syntax and config Python syntax checks passed. No simulations were run.

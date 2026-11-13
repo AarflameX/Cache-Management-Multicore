@@ -1,0 +1,51 @@
+diff --git a/Splash-4/water-spatial/mdmain.c.in b/Splash-4/water-spatial/mdmain.c.in
+--- a/Splash-4/water-spatial/mdmain.c.in
++++ b/Splash-4/water-spatial/mdmain.c.in
+@@ -16,6 +16,7 @@
+ 
+ EXTERN_ENV
+ 
++#include "../../roi.h"
+ #include <stdio.h>
+ 
+ #include "parameters.h"
+@@ -73,6 +74,11 @@
+     BARRIER(gl->start, NumProcs)
+ 
+ 
++  /* Initialization is complete at the preceding barrier. */
++  if (ProcID == 0) { ROI_BEGIN(); }
++  /* Release workers only after thread 0 resets statistics. */
++  BARRIER(gl->start, NumProcs)
++
+     /* MOLECULAR DYNAMICS LOOP */
+ 
+     for (i=1;i <= NSTEP; i++) {
+@@ -193,6 +199,11 @@
+ 
+     } /* for i */
+ 
++  /* All workers must finish before the dump; hold reporting until after it. */
++  BARRIER(gl->start, NumProcs)
++  if (ProcID == 0) { ROI_END(); }
++  BARRIER(gl->start, NumProcs)
++
+     return(XTT);
+ 
+ } /* mdmain.c */
+diff --git a/Splash-4/water-spatial/water.c.in b/Splash-4/water-spatial/water.c.in
+--- a/Splash-4/water-spatial/water.c.in
++++ b/Splash-4/water-spatial/water.c.in
+@@ -339,12 +339,10 @@
+ 
+     /* spawn helper processes */
+     CLOCK(gl->computestart);
+-    SPLASH4_ROI_BEGIN();
+     CREATE(WorkStart, NumProcs);
+ 
+     /* macro to make main process wait for all others to finish */
+     WAIT_FOR_END(NumProcs);
+-    SPLASH4_ROI_END();
+     CLOCK(gl->computeend);
+ 
+     printf("COMPUTESTART (after initialization) = %lu\n",gl->computestart);
