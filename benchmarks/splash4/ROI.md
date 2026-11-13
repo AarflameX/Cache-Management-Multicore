@@ -98,3 +98,26 @@ ENABLE_ROI=1 benchmarks/splash4/build.sh OCEAN-NOCONT
 
 OCEAN-NOCONT validation: static ROI build and native two-worker 18x18 runs passed
 with ROI disabled and m5 logging stubs (one reset, then one dump).
+
+WATER-NSQUARED: reset after the initial INTRAF/INTERF acceleration calculation
+and its barrier, before timestep 1. Dump after all requested timesteps finish,
+before returning to final reporting. Barriers hold all workers around ProcID 0's
+ops; the existing periodic energy calculation/output remains inside the loop.
+
+The runner's `--input` option passes a file to gem5's workload stdin. WATER
+also opens `random.in` relative to its working directory, so run from its source
+directory. From the repository root:
+
+```sh
+ENABLE_ROI=1 benchmarks/splash4/build.sh WATER-NSQUARED
+repo="$PWD"
+(cd "$repo/benchmarks/splash4/src/Splash-4/water-nsquared" && \
+ "$repo/run_benchmark.sh" --suite splash4 --benchmark WATER-NSQUARED --roi --cores 2 \
+ --input "$repo/benchmarks/splash4/inputs/water-nsquared-small.in")
+```
+
+The input uses 64 molecules, two steps, predictor order 6, no saves/restarts,
+energy output every two steps, two workers, and the default cutoff. Both steps
+are measured; this deliberately does not skip the first step as warmup.
+WATER-NSQUARED validation: static ROI build and native runs passed with ROI
+disabled and m5 logging stubs (one reset, then one dump), using that input.

@@ -15,7 +15,7 @@ import shlex
 from gem5.utils.requires import requires
 from gem5.isas import ISA
 from gem5.coherence_protocol import CoherenceProtocol
-from gem5.resources.resource import BinaryResource
+from gem5.resources.resource import BinaryResource, FileResource
 from gem5.components.boards.simple_board import SimpleBoard
 from gem5.components.memory import SingleChannelDDR4_2400
 from gem5.components.processors.cpu_types import CPUTypes
@@ -30,6 +30,7 @@ requires(isa_required=ISA.X86, coherence_protocol_required=CoherenceProtocol.MES
 parser = argparse.ArgumentParser()
 parser.add_argument("--binary", required=True)
 parser.add_argument("--cores", type=int, default=2)
+parser.add_argument("--input", help="file to use as benchmark stdin")
 parser.add_argument("--args", nargs=argparse.REMAINDER, default=[])
 parsed = parser.parse_args()
 if len(parsed.args) == 1:
@@ -60,6 +61,7 @@ board = SimpleBoard(clk_freq="3GHz", processor=processor, memory=memory, cache_h
 board.set_se_binary_workload(
     binary=BinaryResource(local_path=parsed.binary),
     arguments=parsed.args,
+    stdin_file=FileResource(local_path=parsed.input) if parsed.input else None,
     # Park OpenMP workers promptly so exit_group does not halt a spinning CPU
     # while it has a pending memory operation in TimingSimpleCPU.
     env_list=[
