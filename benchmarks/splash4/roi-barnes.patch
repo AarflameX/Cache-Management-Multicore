@@ -1,0 +1,45 @@
+diff --git a/Splash-4/barnes/code.c.in b/Splash-4/barnes/code.c.in
+--- a/Splash-4/barnes/code.c.in
++++ b/Splash-4/barnes/code.c.in
+@@ -69,6 +69,7 @@
+ 
+ #define global  /* nada */
+ 
++#include "../../roi.h"
+ #include "stdinc.h"
+ 
+ string defv[] = {                 /* DEFAULT PARAMETER VALUES              */
+@@ -268,10 +269,8 @@
+ 
+    printf("COMPUTESTART  = %12lu\n",Global->computestart);
+ 
+-   SPLASH4_ROI_BEGIN();
+    CREATE(SlaveStart, NPROC);
+    WAIT_FOR_END(NPROC);
+-   SPLASH4_ROI_END();
+    
+    CLOCK(Global->computeend);
+ 
+@@ -445,12 +444,22 @@
+ 
+    find_my_initial_bodies(bodytab, nbody, ProcessId);
+ 
++  /* All workers have completed setup at the preceding barrier. */
++  if (ProcessId == 0) { ROI_BEGIN(); }
++  /* Hold computation until the reset completes. */
++  BARRIER(Global->Barstart,NPROC);
++
+    /* main loop */
+    while (Local[ProcessId].tnow < tstop + 0.1 * dtime) {
+       stepsystem(ProcessId);
+ //      printtree(Global->G_root);
+ //      printf("Going to next step!!!\n");
+    }
++  /* Wait for every worker, then hold reporting until the dump completes. */
++  BARRIER(Global->Barstart,NPROC);
++  if (ProcessId == 0) { ROI_END(); }
++  BARRIER(Global->Barstart,NPROC);
++
+ }
+ 
+ 

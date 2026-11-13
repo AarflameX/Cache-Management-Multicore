@@ -181,3 +181,24 @@ domains at this size, while the numeric result check passes.
 CHOLESKY validation: static ROI build, native two-worker result checks with
 ROI disabled and with m5 logging stubs passed (exactly one reset then one dump).
 No simulations were run.
+
+BARNES: reset after each worker initializes its body/cell/leaf tables and
+find_my_initial_bodies finishes its barrier, before the timestep loop. Dump
+after all workers leave the loop, before final statistics; barriers prevent
+computation before reset and return/reporting before dump.
+
+```sh
+ENABLE_ROI=1 benchmarks/splash4/build.sh BARNES
+./run_benchmark.sh --suite splash4 --benchmark BARNES --roi --cores 2 \
+  --input benchmarks/splash4/inputs/barnes-small.in
+```
+
+The tracked 12-line input uses 256 generated Plummer bodies, seed 123, no
+particle input/output files, timestep 0.025, softening 0.05, tolerance 1.0,
+cell/leaf allocation factors 2.0/5.0, stop time 0.075, output interval 0.25,
+and two workers. Its first and fourth lines must remain blank. All timesteps
+are included in the ROI; upstream's printed timing counters still skip the
+first two steps and therefore cover a different interval.
+
+BARNES validation: static ROI build and native two-worker runs with ROI disabled
+and m5 logging stubs passed (exactly one reset then one dump).
