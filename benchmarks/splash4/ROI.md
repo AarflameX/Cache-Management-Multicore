@@ -290,3 +290,43 @@ relative geometry path resolves. It writes `raytrace-small.rl` there, outside
 the ROI. Native checks used temporary directories with a link to upstream
 geometry. Static ROI build and native two-worker runs with ROI disabled and
 m5 logging stubs passed (one reset then one dump), producing an image file.
+
+VOLREND: there is no clean single rendering interval across frames, because
+frame computation alternates with timing reports and TIFF output. The chosen
+compromise is one reset/dump pair per frame, not one whole-run pair. Load_Map,
+normals, opacity, octree, image allocation, view selection, image clearing,
+initial queue counters, observer transforms, and inverse-Jacobian setup are
+outside. Pre_Shade, ray tracing, internal queue rearming, and (in adaptive mode)
+interpolation are measured. In Ray_Trace, a barrier gathers all workers after
+setup; worker 0 resets and a release barrier prevents early computation. A
+common barrier after either rendering path waits for every worker before worker
+0 dumps; another barrier holds per-frame timing output and TIFF writes outside.
+All existing algorithm barriers remain intact. The build's DIM setting renders
+three axes: ROTATE_STEPS=1 gives three frames and three ROI dumps. Use those
+explicit dump blocks individually (or aggregate their counters); a later gem5
+exit block also contains work after the last dump and is not a frame ROI.
+
+```sh
+ENABLE_ROI=1 benchmarks/splash4/build.sh VOLREND
+repo="$PWD"
+mkdir -p results/splash4-roi/volrend
+cp benchmarks/splash4/src/Splash-4/volrend/inputs/head-scaleddown4.den \
+  results/splash4-roi/volrend/head.den
+(cd results/splash4-roi/volrend && \
+ "$repo/run_benchmark.sh" --suite splash4 --benchmark VOLREND --roi --cores 2 \
+ --args 2 head 1)
+```
+
+`head-scaleddown4.den` is the smallest bundled volume (about 113 KiB). The
+argument is the file prefix `head`, without `.den`. Copying it to the output
+directory keeps TIFF writes away from the source dataset. No new volume file
+is required. Repeated runs overwrite the generated TIFFs.
+
+VOLREND validation: static ROI build and native two-worker nonadaptive runs
+with ROI disabled and m5 logging stubs passed; each produced three nonempty
+TIFFs, with three reset/dump pairs in the instrumented run. The optional
+adaptive small-input native check with ROI disabled exceeded 60 seconds;
+adaptive completion is not validated. The recommended command is nonadaptive,
+as in upstream's base workload guidance. No simulations were run.
+The same adaptive input also exceeded a 10-second check in a fresh, unmodified
+upstream build with no ROI patches applied; this limitation was not fixed here.

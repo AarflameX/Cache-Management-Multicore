@@ -1,0 +1,56 @@
+diff --git a/Splash-4/volrend/main.c.in b/Splash-4/volrend/main.c.in
+--- a/Splash-4/volrend/main.c.in
++++ b/Splash-4/volrend/main.c.in
+@@ -98,7 +98,6 @@
+   if (num_nodes > 1) {
+     WAIT_FOR_END(num_nodes);
+   }
+-  SPLASH4_ROI_END();
+   MAIN_END;
+ }
+ 
+@@ -227,7 +226,6 @@
+   printf("\nRendering...\n");
+   printf("node\tframe\ttime\titime\trays\thrays\tsamples trilirped\n");
+ 
+-  SPLASH4_ROI_BEGIN();
+   CREATE(Render_Loop, num_nodes);
+ }
+ 
+diff --git a/Splash-4/volrend/adaptive.c.in b/Splash-4/volrend/adaptive.c.in
+--- a/Splash-4/volrend/adaptive.c.in
++++ b/Splash-4/volrend/adaptive.c.in
+@@ -20,6 +20,7 @@
+ *                                                                        *
+ *************************************************************************/
+ 
++#include "../../roi.h"
+ #include "incl.h"
+ 
+ float invjacobian[NM][NM];	/* Jacobian matrix showing object space      */
+@@ -83,6 +84,12 @@
+   num_traced_rays_hit_volume = 0;
+   num_samples_trilirped = 0;
+ 
++  /* One ROI per frame: view/image/initial queue setup is complete.
++     Wait for every worker before resetting, then release computation. */
++  BARRIER(Global->TimeBarrier,num_nodes)
++  if (my_node == 0) { ROI_BEGIN(); }
++  BARRIER(Global->TimeBarrier,num_nodes)
++
+   /* Invoke adaptive or non-adaptive ray tracer                          */
+   if (adaptive) {
+ 
+@@ -149,6 +156,12 @@
+     mclock(stoptime,starttime,&exectime);
+     exectime1 = 0;
+   }
++
++  /* Both rendering paths (including interpolation) are finished.
++     Keep frame statistics and the later TIFF write outside this dump. */
++  BARRIER(Global->TimeBarrier,num_nodes)
++  if (my_node == 0) { ROI_END(); }
++  BARRIER(Global->TimeBarrier,num_nodes)
+ 
+     LOCK(Global->CountLock);
+     printf("%3ld\t%3ld\t%6ld\t%6ld\t%6ld\t%6ld\t%8ld\n",my_node,frame,exectime,
