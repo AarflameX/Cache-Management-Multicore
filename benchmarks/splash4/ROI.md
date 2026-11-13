@@ -235,3 +235,35 @@ Mock gem5 commands verified bin-roi selection, two-core forwarding, the CHOLESKY
 filename argument, and BARNES/FMM stdin paths. Existing patches are byte-for-byte
 unchanged and GAP has no changes. Shell syntax and whitespace checks passed.
 No gem5 simulations were run.
+
+Batch 3 completes the remaining targets in this checkout: RADIOSITY, RAYTRACE,
+VOLREND, and VOLREND-NPL (`volrend-no_print_lock`). Independent patches preserve
+all previous apps, GAP, and the shared ENABLE_ROI macros. Only worker 0 issues
+the m5 ops. Without ENABLE_ROI the shared macros remain no-ops.
+
+RADIOSITY (batch mode only): measure convergence/ray gathering/refinement and
+final vertex averaging/normalization. Global storage, visibility setup, queue
+initialization/assignment, and the initial model/BSP task phase are setup.
+Model construction performs initial refinement too: it cannot be separated
+cleanly from loading, so that initial refinement is deliberately excluded.
+Reset follows `init_modeling_tasks` and its first `process_tasks` drain; a
+barrier gathers every worker there, thread 0 resets, and a second barrier
+releases convergence. After the final normalization task drain, another barrier
+waits for every worker before thread 0 dumps; a following barrier holds timing
+statistics, return, display and other reporting until after the dump. Existing
+queue termination barriers remain intact. Interactive GUI callbacks are not
+instrumented: use `-batch` for ROI runs.
+
+```sh
+ENABLE_ROI=1 benchmarks/splash4/build.sh RADIOSITY
+./run_benchmark.sh --suite splash4 --benchmark RADIOSITY --roi --cores 2 \
+  --args -batch -p 2 -ae 5000 -en 0.05
+```
+
+This uses the built-in test scene (no external input). Area epsilon 5000 and
+energy threshold 0.05 make a small functional workload with coarser refinement
+and convergence than the default benchmark. It is not a performance reference.
+
+RADIOSITY validation: static ROI build and native two-worker batch runs with
+ROI disabled and m5 logging stubs passed (one reset then one dump). No gem5
+simulations were run.

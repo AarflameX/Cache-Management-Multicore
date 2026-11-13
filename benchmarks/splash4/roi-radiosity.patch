@@ -1,0 +1,57 @@
+diff --git a/Splash-4/radiosity/rad_main.c.in b/Splash-4/radiosity/rad_main.c.in
+--- a/Splash-4/radiosity/rad_main.c.in
++++ b/Splash-4/radiosity/rad_main.c.in
+@@ -22,6 +22,7 @@
+  *
+  ***************************************************************/
+ 
++#include "../../roi.h"
+ #include <stdio.h>
+ #include <string.h>
+ #if defined(SGI_GL)
+@@ -235,7 +236,6 @@
+ 
+             /* Time stamp */
+             CLOCK( time_rad_start );
+-            SPLASH4_ROI_BEGIN();
+ 
+             global->index = 0;
+             for( i = 0 ; i < n_processors ; i++ )
+@@ -246,7 +246,6 @@
+             /* And start processing */
+             CREATE(radiosity, n_processors);
+             WAIT_FOR_END(n_processors);
+-            SPLASH4_ROI_END();
+ 
+             /* Time stamp */
+             CLOCK( time_rad_end );
+@@ -830,6 +829,14 @@
+     init_modeling_tasks(process_id) ;
+     process_tasks(process_id) ;
+ 
++    /* Modeling and its initial refinement tasks are setup. process_tasks
++       drains them before this batch-only measurement boundary. */
++    if (batch_mode) {
++        BARRIER(global->barrier, n_processors)
++        if (process_id == 0) { ROI_BEGIN(); }
++        BARRIER(global->barrier, n_processors)
++    }
++
+     /* Gather rays & do BF refinement */
+     while( init_ray_tasks(process_id) )
+         {
+@@ -855,6 +862,14 @@
+     /* Then normalize the radiosity at vertices */
+     init_radavg_tasks( RAD_NORMALIZING_MODE, process_id ) ;
+     process_tasks(process_id) ;
++
++    /* Queue completion is followed by an explicit all-worker rendezvous.
++       Keep statistics/reporting behind thread 0's dump. */
++    if (batch_mode) {
++        BARRIER(global->barrier, n_processors)
++        if (process_id == 0) { ROI_END(); }
++        BARRIER(global->barrier, n_processors)
++    }
+ 
+     if ((process_id == 0) || (dostats))
+         CLOCK(vertex_done);
