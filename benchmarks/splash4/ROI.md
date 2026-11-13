@@ -330,3 +330,48 @@ adaptive completion is not validated. The recommended command is nonadaptive,
 as in upstream's base workload guidance. No simulations were run.
 The same adaptive input also exceeded a 10-second check in a fresh, unmodified
 upstream build with no ROI patches applied; this limitation was not fixed here.
+
+VOLREND-NPL (`volrend-no_print_lock`): measure the same per-frame shading,
+ray tracing and optional interpolation as VOLREND. Volume preprocessing and
+frame/view/initial-queue setup are outside; progress recording, frame printing
+and TIFF output follow the dump. A single region across frames would include
+those writes, so this variant also uses one ROI per frame. In Ray_Trace, an
+entry barrier gathers workers before worker 0 resets and a release barrier
+holds computation. A common completion barrier after either rendering path
+waits for every worker before worker 0 dumps; another holds progress recording
+and output. Existing algorithm barriers and the no-print-lock design stay intact.
+
+```sh
+ENABLE_ROI=1 benchmarks/splash4/build.sh VOLREND-NPL
+repo="$PWD"
+mkdir -p results/splash4-roi/volrend-npl
+cp benchmarks/splash4/src/Splash-4/volrend-no_print_lock/inputs/head-scaleddown4.den \
+  results/splash4-roi/volrend-npl/head.den
+(cd results/splash4-roi/volrend-npl && \
+ "$repo/run_benchmark.sh" --suite splash4 --benchmark VOLREND-NPL --roi --cores 2 \
+ --args 2 head 1)
+```
+
+This uses the same smallest bundled volume, two workers and one rotation step
+per axis, producing three frames/ROI dumps. The dataset prefix stays short
+because upstream stores filenames in a fixed-size buffer. No new volume file
+is required. Use nonadaptive mode for the supplied small run; adaptive-mode
+completion is not validated.
+
+VOLREND-NPL validation: static ROI build and native two-worker nonadaptive runs
+with ROI disabled and m5 logging stubs passed. Three frames produced three
+nonempty TIFFs; the instrumented run recorded three alternating reset/dump
+pairs. No simulations were run.
+
+Build all batch 3 targets, leaving previously completed binaries untouched:
+
+```sh
+ENABLE_ROI=1 GEM5_ROOT="$HOME/gem5" benchmarks/splash4/build.sh \
+  RADIOSITY RAYTRACE VOLREND VOLREND-NPL
+```
+
+Batch 3 integration validation: all patches applied to a fresh upstream archive;
+these four static ROI targets built twice and no `bin/` directory was created.
+Mock gem5 invocations checked each binary selection, two-core setting, and
+benchmark arguments. Earlier ROI patches remained byte-identical; GAP has no
+changes. Shell syntax and whitespace checks passed. No gem5 simulations ran.
