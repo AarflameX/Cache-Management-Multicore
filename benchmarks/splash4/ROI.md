@@ -53,3 +53,21 @@ upstream tree and is recognized on repeated builds. Native two-worker builds
 without ENABLE_ROI passed FFT's inverse test, LU's factorization check, and
 RADIX's sorted-key check with small inputs. Shell syntax checks passed.
 No gem5 simulations were run.
+
+Batch 1 additions use independent `roi-*.patch` files, applied with the same
+forward/reverse checks as `roi.patch`. This also upgrades existing patched
+checkouts without changing the original three apps or shared header.
+
+LU-NOCONT (the upstream binary name for LU-NON-CONT): reset after worker-local
+allocation and TouchA, once the existing barrier confirms setup is complete.
+Dump after every worker returns from `lu()`, before timing/reporting. Added
+barriers prevent factorization before reset and reporting before dump.
+
+```sh
+ENABLE_ROI=1 benchmarks/splash4/build.sh LU-NOCONT
+./run_benchmark.sh --suite splash4 --benchmark LU-NOCONT --roi --cores 2 --args -p2 -n32 -b8
+```
+
+LU-NOCONT validation: static ROI build and native two-worker 32x32 result
+checks passed both with ROI disabled and with m5 logging stubs (one reset,
+then one dump). No simulations were run.

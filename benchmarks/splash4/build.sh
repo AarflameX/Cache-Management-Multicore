@@ -31,10 +31,13 @@ case "${ENABLE_ROI:-0}" in
             echo "ERROR: build libm5 first: cd ${gem5_root}/util/m5 && scons build/x86/out/libm5.a" >&2
             exit 1
         }
-        if ! git -C "$source_dir" apply --reverse --check "${suite_dir}/roi.patch" 2>/dev/null; then
-            git -C "$source_dir" apply --check "${suite_dir}/roi.patch"
-            git -C "$source_dir" apply "${suite_dir}/roi.patch"
-        fi
+        for roi_patch in "${suite_dir}/roi.patch" "${suite_dir}"/roi-*.patch; do
+            [[ -f "$roi_patch" ]] || continue
+            if ! git -C "$source_dir" apply --reverse --check "$roi_patch" 2>/dev/null; then
+                git -C "$source_dir" apply --check "$roi_patch"
+                git -C "$source_dir" apply "$roi_patch"
+            fi
+        done
         roi_flags=" -DENABLE_ROI -I${gem5_root}/include"
         output_dir="${suite_dir}/bin-roi"
         ;;
@@ -43,7 +46,7 @@ esac
 # Optional target selection also makes small non-ROI rebuilds possible.
 for requested in "$@"; do
     case "$requested" in
-        FFT|LU-CONT|RADIX) ;;
+        FFT|LU-CONT|RADIX|LU-NOCONT) ;;
         *) echo "ERROR: unsupported selected target: $requested" >&2; exit 1 ;;
     esac
 done
@@ -60,7 +63,7 @@ for makefile in "$source_dir"/Splash-4/*/Makefile; do
         (( selected )) || continue
     fi
     if [[ "${ENABLE_ROI:-0}" == 1 ]]; then
-        case "$target" in FFT|LU-CONT|RADIX) ;; *) continue ;; esac
+        case "$target" in FFT|LU-CONT|RADIX|LU-NOCONT) ;; *) continue ;; esac
     fi
     flags='-O2 -pthread -D_XOPEN_SOURCE=500 -D_POSIX_C_SOURCE=200112 -std=c11 -fno-strict-aliasing -D ATOMIC_BARRIERS -march=x86-64 -I./libtiff -I./glibdumb -I./glibps'
     case "$target" in
