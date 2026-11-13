@@ -17,6 +17,12 @@ fi
 [[ -f "$source_dir/Makefile.config" && -f "$source_dir/pthread.m4" ]] || {
     echo "ERROR: invalid SPLASH-4 checkout: $source_dir" >&2; exit 1;
 }
+# Bounds-safe volume reads are needed with and without ROI instrumentation.
+portability_patch="${suite_dir}/volrend-index.patch"
+if ! git -C "$source_dir" apply --reverse --check "$portability_patch" 2>/dev/null; then
+    git -C "$source_dir" apply --check "$portability_patch"
+    git -C "$source_dir" apply "$portability_patch"
+fi
 # Upstream invokes m4 -Ulen -Uindex -P with pthread.m4, generating C11
 # atomics and pthread code. Keep ATOMIC_BARRIERS enabled in both m4 and C.
 output_dir="${suite_dir}/bin"

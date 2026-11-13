@@ -1,0 +1,114 @@
+diff --git a/Splash-4/volrend/address.h.in b/Splash-4/volrend/address.h.in
+--- a/Splash-4/volrend/address.h.in
++++ b/Splash-4/volrend/address.h.in
+@@ -23,6 +23,8 @@
+ 
+ 				/* Fast subscripted access to map            */
+ 				/*   (assumes mins = 0 and chars)            */
++#include <stddef.h>
++
+ #define MAP_ADDRESS(IZ,IY,IX)	(map_address+\
+ 				 ((IZ)*map_len[Y]+(IY))*map_len[X]+(IX))
+ #define MAP(IZ,IY,IX)		(*MAP_ADDRESS(IZ,IY,IX))
+@@ -68,9 +70,24 @@
+ 				 pyr_offset2=pyr_offset1&7,\
+ 				 pyr_address2=pyr_address[ILEVEL]+\
+ 				 (pyr_offset1>>3))
+-#define PYR(ILEVEL,IZ,IY,IX)\
+-				(PYR_ADDRESS(ILEVEL,IZ,IY,IX),\
+-				 (*pyr_address2>>pyr_offset2)&1)
++/* Outside the volume is empty. Check coordinates before forming a pointer;
++ * a valid flattened byte offset alone cannot detect wrapped row indices. */
++static inline BOOLEAN Read_Pyramid_Bit(long level, long z, long y, long x)
++{
++    size_t bit_offset, byte_offset;
++    if (level < 0 || level >= pyr_levels ||
++        x < 0 || x >= pyr_len[level][X] ||
++        y < 0 || y >= pyr_len[level][Y] ||
++        z < 0 || z >= pyr_len[level][Z])
++        return 0;
++    bit_offset = ((size_t)z * (size_t)pyr_len[level][Y] + (size_t)y) *
++                 (size_t)pyr_len[level][X] + (size_t)x;
++    byte_offset = bit_offset >> 3;
++    if (pyr_length[level] <= 0 || byte_offset >= (size_t)pyr_length[level])
++        return 0;
++    return (pyr_address[level][byte_offset] >> (bit_offset & 7)) & 1;
++}
++#define PYR(ILEVEL,IZ,IY,IX) Read_Pyramid_Bit((ILEVEL),(IZ),(IY),(IX))
+ 
+ 
+ #define IMAGE_ADDRESS(IY,IX)	(image_address+(IY)*image_len[X]+(IX))
+diff --git a/Splash-4/volrend/raytrace.c.in b/Splash-4/volrend/raytrace.c.in
+--- a/Splash-4/volrend/raytrace.c.in
++++ b/Splash-4/volrend/raytrace.c.in
+@@ -314,6 +314,13 @@
+     /* base level, if trilirp'ing, or lower neighbor otherwise, skip it.     */
+     /* Use of OR'ed mask and no trilirp is valid but wasteful, but use of    */
+     /* un-OR'ed mask and trilirp is invalid.                                 */
++
++    /* Clip again after floating-point stepping, before integer conversion.
++       This also rejects NaNs/infinities without forming an invalid address. */
++    if (!(sample[X] >= 0.0f && sample[X] < (float)pyr_len[0][X] &&
++          sample[Y] >= 0.0f && sample[Y] < (float)pyr_len[0][Y] &&
++          sample[Z] >= 0.0f && sample[Z] < (float)pyr_len[0][Z]))
++      goto end_of_sample;
+ 
+     samplex=(long)sample[X];
+     sampley=(long)sample[Y];
+diff --git a/Splash-4/volrend-no_print_lock/address.h.in b/Splash-4/volrend-no_print_lock/address.h.in
+--- a/Splash-4/volrend-no_print_lock/address.h.in
++++ b/Splash-4/volrend-no_print_lock/address.h.in
+@@ -23,6 +23,8 @@
+ 
+ 				/* Fast subscripted access to map            */
+ 				/*   (assumes mins = 0 and chars)            */
++#include <stddef.h>
++
+ #define MAP_ADDRESS(IZ,IY,IX)	(map_address+\
+ 				 ((IZ)*map_len[Y]+(IY))*map_len[X]+(IX))
+ #define MAP(IZ,IY,IX)		(*MAP_ADDRESS(IZ,IY,IX))
+@@ -68,9 +70,24 @@
+ 				 pyr_offset2=pyr_offset1&7,\
+ 				 pyr_address2=pyr_address[ILEVEL]+\
+ 				 (pyr_offset1>>3))
+-#define PYR(ILEVEL,IZ,IY,IX)\
+-				(PYR_ADDRESS(ILEVEL,IZ,IY,IX),\
+-				 (*pyr_address2>>pyr_offset2)&1)
++/* Outside the volume is empty. Check coordinates before forming a pointer;
++ * a valid flattened byte offset alone cannot detect wrapped row indices. */
++static inline BOOLEAN Read_Pyramid_Bit(long level, long z, long y, long x)
++{
++    size_t bit_offset, byte_offset;
++    if (level < 0 || level >= pyr_levels ||
++        x < 0 || x >= pyr_len[level][X] ||
++        y < 0 || y >= pyr_len[level][Y] ||
++        z < 0 || z >= pyr_len[level][Z])
++        return 0;
++    bit_offset = ((size_t)z * (size_t)pyr_len[level][Y] + (size_t)y) *
++                 (size_t)pyr_len[level][X] + (size_t)x;
++    byte_offset = bit_offset >> 3;
++    if (pyr_length[level] <= 0 || byte_offset >= (size_t)pyr_length[level])
++        return 0;
++    return (pyr_address[level][byte_offset] >> (bit_offset & 7)) & 1;
++}
++#define PYR(ILEVEL,IZ,IY,IX) Read_Pyramid_Bit((ILEVEL),(IZ),(IY),(IX))
+ 
+ 
+ #define IMAGE_ADDRESS(IY,IX)	(image_address+(IY)*image_len[X]+(IX))
+diff --git a/Splash-4/volrend-no_print_lock/raytrace.c.in b/Splash-4/volrend-no_print_lock/raytrace.c.in
+--- a/Splash-4/volrend-no_print_lock/raytrace.c.in
++++ b/Splash-4/volrend-no_print_lock/raytrace.c.in
+@@ -314,6 +314,13 @@
+     /* base level, if trilirp'ing, or lower neighbor otherwise, skip it.     */
+     /* Use of OR'ed mask and no trilirp is valid but wasteful, but use of    */
+     /* un-OR'ed mask and trilirp is invalid.                                 */
++
++    /* Clip again after floating-point stepping, before integer conversion.
++       This also rejects NaNs/infinities without forming an invalid address. */
++    if (!(sample[X] >= 0.0f && sample[X] < (float)pyr_len[0][X] &&
++          sample[Y] >= 0.0f && sample[Y] < (float)pyr_len[0][Y] &&
++          sample[Z] >= 0.0f && sample[Z] < (float)pyr_len[0][Z]))
++      goto end_of_sample;
+ 
+     samplex=(long)sample[X];
+     sampley=(long)sample[Y];
