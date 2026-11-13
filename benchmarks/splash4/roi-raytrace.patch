@@ -1,0 +1,40 @@
+diff --git a/Splash-4/raytrace/main.c.in b/Splash-4/raytrace/main.c.in
+--- a/Splash-4/raytrace/main.c.in
++++ b/Splash-4/raytrace/main.c.in
+@@ -80,6 +80,7 @@
+ #define VERSION 	"1.00"
+ 
+ 
++#include "../../roi.h"
+ #include <stdio.h>
+ #include <math.h>
+ #include "rt.h"
+@@ -261,7 +262,17 @@
+ 	/* POSSIBLE ENHANCEMENT:  Here's where one would RESET STATISTICS
+ 	and TIMING if one wanted to measure only the parallel part */
+ 
++    /* Existing barrier completed all work-pool and stack initialization. */
++    if (pid == 0) { ROI_BEGIN(); }
++    BARRIER(gm->start, gm->nprocs)
++
+ 	RayTrace(pid);
++
++    /* An empty local pool does not prove other workers have finished. */
++    BARRIER(gm->start, gm->nprocs)
++    if (pid == 0) { ROI_END(); }
++    BARRIER(gm->start, gm->nprocs)
++
+ 
+ 
+ 	if ((pid == 0) || (dostats)) {
+@@ -457,10 +468,8 @@
+ 	 */
+ 
+ 	CLOCK(begin);
+-	SPLASH4_ROI_BEGIN();
+ 	CREATE(StartRayTrace, gm->nprocs);
+ 	WAIT_FOR_END(gm->nprocs);
+-	SPLASH4_ROI_END();
+ 	CLOCK(end);
+ 
+ 

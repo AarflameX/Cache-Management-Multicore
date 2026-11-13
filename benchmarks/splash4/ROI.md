@@ -267,3 +267,26 @@ and convergence than the default benchmark. It is not a performance reference.
 RADIOSITY validation: static ROI build and native two-worker batch runs with
 ROI disabled and m5 logging stubs passed (one reset then one dump). No gem5
 simulations were run.
+
+RAYTRACE: measure ray tracing/shading while workers consume and steal jobs.
+Scene/geometry loading, frame-buffer and acceleration structure creation,
+per-worker work pools and ray stacks are setup. Reset follows the existing
+work-pool barrier; the added release barrier prevents any ray work before reset.
+An explicit completion barrier waits for every worker to return from RayTrace
+(an empty local queue is insufficient), then thread 0 dumps and another barrier
+holds worker timing reports. Final image output and global reports are outside.
+
+```sh
+ENABLE_ROI=1 benchmarks/splash4/build.sh RAYTRACE
+repo="$PWD"
+(cd "$repo/benchmarks/splash4/src/Splash-4/raytrace" && \
+ "$repo/run_benchmark.sh" --suite splash4 --benchmark RAYTRACE --roi --cores 2 \
+ --args -p2 "$repo/benchmarks/splash4/inputs/raytrace-small.env")
+```
+
+The tracked environment is the upstream teapot view reduced to 32x32 pixels;
+it uses the existing `inputs/teapot.geo`. Run in the source directory so that
+relative geometry path resolves. It writes `raytrace-small.rl` there, outside
+the ROI. Native checks used temporary directories with a link to upstream
+geometry. Static ROI build and native two-worker runs with ROI disabled and
+m5 logging stubs passed (one reset then one dump), producing an image file.
