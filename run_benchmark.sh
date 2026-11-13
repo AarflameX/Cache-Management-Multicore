@@ -6,7 +6,7 @@ usage() {
 Usage: ./run_benchmark.sh --suite <suite> --benchmark <binary> [--cores <N>] [--args <arguments...>]
 
 --cores defaults to 2 and must be a positive multiple of 2.
---roi selects GAP binaries from bin-roi/ (built with ENABLE_ROI=1).
+--roi selects GAP or SPLASH-4 binaries from bin-roi/ (built with ENABLE_ROI=1).
 --args must come last; all remaining tokens are passed to the benchmark.
 A single quoted --args string is parsed using shell-style quoting (no expansion).
 GEM5_BIN overrides the default executable at ~/gem5/build/X86/gem5.opt.
@@ -46,7 +46,10 @@ done
 repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 binary_dir=bin
 if (( roi )); then
-    [[ "$suite" == gap ]] || die '--roi is currently supported only for GAP'
+    [[ "$suite" == gap || "$suite" == splash4 ]] || die '--roi supports GAP and SPLASH-4'
+    if [[ "$suite" == splash4 ]]; then
+        case "$benchmark" in FFT|LU-CONT|RADIX) ;; *) die '--roi supports only FFT, LU-CONT, RADIX for SPLASH-4' ;; esac
+    fi
     binary_dir=bin-roi
 fi
 binary="${repo_root}/benchmarks/${suite}/${binary_dir}/${benchmark}"
