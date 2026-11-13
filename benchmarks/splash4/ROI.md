@@ -154,3 +154,30 @@ built these five static ROI binaries twice, confirming repeat-build patch
 checks. It created no `bin/` directory. Mock gem5 invocations verified runner
 binary selection, two-core forwarding, and WATER stdin-file forwarding.
 Shell syntax and config Python syntax checks passed. No simulations were run.
+
+Batch 2 adds CHOLESKY, BARNES, and FMM with separate patches; the original
+apps and shared ENABLE_ROI macros are unchanged. Only worker 0 issues m5 ops.
+
+CHOLESKY: reset after PreAllocateFO/PreProcessFO and the setup barrier, just
+before BNumericSolveFO. Dump after every worker completes numeric factorization,
+before timing/checks/reporting; entry and exit barriers hold workers around ops.
+
+```sh
+ENABLE_ROI=1 benchmarks/splash4/build.sh CHOLESKY
+./run_benchmark.sh --suite splash4 --benchmark CHOLESKY --roi --cores 2 \
+  --args -p2 -t benchmarks/splash4/inputs/cholesky-grid64.hb
+```
+
+The tracked Harwell-Boeing pattern input is a 64x64 matrix for an 8x8 grid:
+column c contains its diagonal, right grid neighbor (unless at the row edge),
+and lower grid neighbor (unless on the bottom row), stored as a one-based lower
+triangle in column order. CHOLESKY supplies numeric values itself. `-t` checks
+the factorization result. Keep `-p2` joined: upstream's filename scan skips
+option tokens but does not skip separate option values. The file is a small
+functional workload, not a representative performance benchmark; upstream's
+preprocessing efficiency diagnostic can be NaN when it assigns zero static
+domains at this size, while the numeric result check passes.
+
+CHOLESKY validation: static ROI build, native two-worker result checks with
+ROI disabled and with m5 logging stubs passed (exactly one reset then one dump).
+No simulations were run.

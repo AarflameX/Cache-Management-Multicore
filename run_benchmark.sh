@@ -51,7 +51,7 @@ binary_dir=bin
 if (( roi )); then
     [[ "$suite" == gap || "$suite" == splash4 ]] || die '--roi supports GAP and SPLASH-4'
     if [[ "$suite" == splash4 ]]; then
-        case "$benchmark" in FFT|LU-CONT|RADIX|WATER-SPATIAL|WATER-NSQUARED|OCEAN-NOCONT|OCEAN-CONT|LU-NOCONT) ;; *) die '--roi: unsupported SPLASH-4 benchmark' ;; esac
+        case "$benchmark" in FFT|LU-CONT|RADIX|CHOLESKY|WATER-SPATIAL|WATER-NSQUARED|OCEAN-NOCONT|OCEAN-CONT|LU-NOCONT) ;; *) die '--roi: unsupported SPLASH-4 benchmark' ;; esac
     fi
     binary_dir=bin-roi
 fi

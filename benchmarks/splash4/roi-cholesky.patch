@@ -1,0 +1,52 @@
+diff --git a/Splash-4/cholesky/solve.c.in b/Splash-4/cholesky/solve.c.in
+--- a/Splash-4/cholesky/solve.c.in
++++ b/Splash-4/cholesky/solve.c.in
+@@ -33,6 +33,7 @@
+ 
+ MAIN_ENV
+ 
++#include "../../roi.h"
+ #include <math.h>
+ #include <unistd.h>
+ #include "matrix.h"
+@@ -253,12 +254,10 @@
+   ComputeRemainingFO();
+   ComputeReceivedFO();
+ 
+-  SPLASH4_ROI_BEGIN();
+ 
+   CREATE(Go, P);
+   WAIT_FOR_END(P);
+ 
+-  SPLASH4_ROI_END();
+ 
+   printf("%.0f operations for factorization\n", work_tree[M.n]);
+ 
+@@ -345,15 +344,24 @@
+ 
+   BARRIER(Global->start, P);
+ 
+-/* POSSIBLE ENHANCEMENT:  Here is where one might reset the
+-   statistics that one is measuring about the parallel execution */
++  /* All workers have completed setup at the preceding barrier. */
++  if (MyNum == 0) { ROI_BEGIN(); }
++  /* Hold computation until the reset completes. */
++  BARRIER(Global->start, P);
++
++
+ 
+   if ((MyNum == 0) || (do_stats)) {
+     CLOCK(lc->rs);
+   }
+ 
+   BNumericSolveFO(MyNum,lc);
+-  BARRIER(Global->start, P);
++  /* Wait for every worker, then hold reporting until the dump completes. */
++  BARRIER(Global->start, P);
++  if (MyNum == 0) { ROI_END(); }
++  BARRIER(Global->start, P);
++
++
+ 
+   if ((MyNum == 0) || (do_stats)) {
+     CLOCK(lc->rf);
