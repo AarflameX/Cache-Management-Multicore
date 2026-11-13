@@ -85,3 +85,16 @@ ENABLE_ROI=1 benchmarks/splash4/build.sh OCEAN-CONT
 
 OCEAN-CONT validation: static ROI build and native two-worker 18x18 runs passed
 with ROI disabled and m5 logging stubs (one reset, then one dump).
+
+OCEAN-NOCONT (the upstream binary name for OCEAN-NON-CONT): reset after the
+`sl_onetime` barrier confirms all shared fields and forcing setup are ready.
+Dump after the outer timestep loop and final field updates, before timing
+results; entry/exit barriers synchronize all workers around thread 0's ops.
+
+```sh
+ENABLE_ROI=1 benchmarks/splash4/build.sh OCEAN-NOCONT
+./run_benchmark.sh --suite splash4 --benchmark OCEAN-NOCONT --roi --cores 2 --args -p2 -n18
+```
+
+OCEAN-NOCONT validation: static ROI build and native two-worker 18x18 runs passed
+with ROI disabled and m5 logging stubs (one reset, then one dump).
