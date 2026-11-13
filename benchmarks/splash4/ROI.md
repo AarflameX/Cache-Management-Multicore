@@ -1,4 +1,5 @@
-Optional ROI instrumentation is provided only for FFT, LU-CONT, and RADIX.
+Optional ROI instrumentation covers FFT, LU-CONT, RADIX, and the batch 1 apps
+listed below.
 GAP is unchanged. The tracked `roi.patch` supplies a shared `roi.h` and changes
 the upstream `.c.in` templates, so regenerated C retains the instrumentation.
 The builder applies the patch once, checks libm5, and forces recompilation.
@@ -71,3 +72,16 @@ ENABLE_ROI=1 benchmarks/splash4/build.sh LU-NOCONT
 LU-NOCONT validation: static ROI build and native two-worker 32x32 result
 checks passed both with ROI disabled and with m5 logging stubs (one reset,
 then one dump). No simulations were run.
+
+OCEAN-CONT: reset after the `sl_onetime` barrier, which waits for all field,
+forcing, and solver setup; measure the entire outer timestep loop, including
+its first step. Dump after all workers finish the loop's final field updates,
+before timing/reporting. Entry/exit barriers hold workers around thread 0's ops.
+
+```sh
+ENABLE_ROI=1 benchmarks/splash4/build.sh OCEAN-CONT
+./run_benchmark.sh --suite splash4 --benchmark OCEAN-CONT --roi --cores 2 --args -p2 -n18
+```
+
+OCEAN-CONT validation: static ROI build and native two-worker 18x18 runs passed
+with ROI disabled and m5 logging stubs (one reset, then one dump).

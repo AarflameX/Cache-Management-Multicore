@@ -1,0 +1,49 @@
+diff --git a/Splash-4/ocean-contiguous_partitions/slave1.c.in b/Splash-4/ocean-contiguous_partitions/slave1.c.in
+--- a/Splash-4/ocean-contiguous_partitions/slave1.c.in
++++ b/Splash-4/ocean-contiguous_partitions/slave1.c.in
+@@ -20,6 +20,7 @@
+ 
+ EXTERN_ENV
+ 
++#include "../../roi.h"
+ #include <stdio.h>
+ #include <math.h>
+ #include <time.h>
+@@ -677,6 +678,11 @@
+  one-time stuff over at this point
+  ***************************************************************/
+ 
++  /* Initialization is complete at the preceding barrier. */
++  if (procid == 0) { ROI_BEGIN(); }
++  /* Release workers only after thread 0 resets statistics. */
++  BARRIER(bars->sl_onetime,nprocs)
++
+    while (!endflag) {
+      while ((!dayflag) || (!dhourflag)) {
+        dayflag = 0;
+@@ -815,6 +821,11 @@
+        endflag = 1;
+      }
+   }
++  /* All workers must finish before the dump; hold reporting until after it. */
++  BARRIER(bars->sl_onetime,nprocs)
++  if (procid == 0) { ROI_END(); }
++  BARRIER(bars->sl_onetime,nprocs)
++
+   if ((procid == MASTER) || (do_stats)) {
+     CLOCK(t1);
+     gp[procid].total_time = t1-gp[procid].total_time;
+diff --git a/Splash-4/ocean-contiguous_partitions/main.c.in b/Splash-4/ocean-contiguous_partitions/main.c.in
+--- a/Splash-4/ocean-contiguous_partitions/main.c.in
++++ b/Splash-4/ocean-contiguous_partitions/main.c.in
+@@ -472,10 +472,8 @@
+      printf("                       MULTIGRID OUTPUTS\n");
+    }
+ 
+-   SPLASH4_ROI_BEGIN();
+    CREATE(slave, nprocs);
+    WAIT_FOR_END(nprocs);
+-   SPLASH4_ROI_END();
+    CLOCK(computeend)
+ 
+    printf("\n");
