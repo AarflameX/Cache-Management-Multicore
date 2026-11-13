@@ -202,3 +202,36 @@ first two steps and therefore cover a different interval.
 
 BARNES validation: static ROI build and native two-worker runs with ROI disabled
 and m5 logging stubs passed (exactly one reset then one dump).
+
+FMM: reset after particle-list/box allocation and per-worker time initialization,
+with the setup barrier ensuring everyone is ready, before the timestep loop.
+Dump after all workers finish the loop, before timing aggregation/reporting;
+barriers hold workers around thread 0's calls. First grid construction is work
+inside the ROI, and all requested steps are measured.
+
+```sh
+ENABLE_ROI=1 benchmarks/splash4/build.sh FMM
+./run_benchmark.sh --suite splash4 --benchmark FMM --roi --cores 2 \
+  --input benchmarks/splash4/inputs/fmm-small.in
+```
+
+The tracked nine-line input uses two Plummer clusters, 256 particles, precision
+1e-6, two workers, three timesteps of duration 0.025, default softening (0.0),
+and cost-zones partitioning. FMM writes a `times` file in the working directory.
+Its upstream printed timing summary counts steps 3 onward; the ROI includes
+all three steps. Native checks ran in temporary directories to contain this
+output. FMM validation: static ROI build and native runs with ROI disabled and
+m5 logging stubs passed (exactly one reset then one dump).
+
+Build all three batch 2 ROI binaries without rebuilding completed apps:
+
+```sh
+ENABLE_ROI=1 GEM5_ROOT="$HOME/gem5" benchmarks/splash4/build.sh CHOLESKY BARNES FMM
+```
+
+Batch 2 integration validation: a fresh upstream archive accepted all ROI
+patches and built CHOLESKY, BARNES, and FMM twice without creating `bin/`.
+Mock gem5 commands verified bin-roi selection, two-core forwarding, the CHOLESKY
+filename argument, and BARNES/FMM stdin paths. Existing patches are byte-for-byte
+unchanged and GAP has no changes. Shell syntax and whitespace checks passed.
+No gem5 simulations were run.

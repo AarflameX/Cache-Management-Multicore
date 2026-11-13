@@ -1,0 +1,54 @@
+diff --git a/Splash-4/fmm/fmm.c.in b/Splash-4/fmm/fmm.c.in
+--- a/Splash-4/fmm/fmm.c.in
++++ b/Splash-4/fmm/fmm.c.in
+@@ -66,6 +66,7 @@
+ 
+  */
+ 
++#include "../../roi.h"
+ #include <stdio.h>
+ #include <math.h>
+ #include <errno.h>
+@@ -141,10 +142,8 @@
+    }
+    ParallelExecute();
+    WAIT_FOR_END(Number_Of_Processors - 1);*/
+-   SPLASH4_ROI_BEGIN();
+    CREATE(ParallelExecute, Number_Of_Processors);
+    WAIT_FOR_END(Number_Of_Processors);
+-   SPLASH4_ROI_END();
+ 
+    printf("Finished FMM\n");
+    PrintTimes();
+@@ -205,9 +204,13 @@
+       LockedPrint("Starting FMM with %d processor%s\n", Number_Of_Processors,
+ 		  (Number_Of_Processors == 1) ? "" : "s");
+    }
++   Local[my_id].Time = 0.0;
+    BARRIER(G_Memory->synch, Number_Of_Processors)
+-
+-   Local[my_id].Time = 0.0;
++  /* All workers have completed setup at the preceding barrier. */
++  if (my_id == 0) { ROI_BEGIN(); }
++  /* Hold computation until the reset completes. */
++  BARRIER(G_Memory->synch, Number_Of_Processors)
++
+    for (MY_TIME_STEP = 0; MY_TIME_STEP < Time_Steps; MY_TIME_STEP++) {
+ 
+       if (MY_TIME_STEP == 2) {
+@@ -235,10 +238,14 @@
+       Local[my_id].Time += Timestep_Dur;
+       MY_TIMING[MY_TIME_STEP].total_time = finish - start;
+    }
++  /* Wait for every worker, then hold reporting until the dump completes. */
++  BARRIER(G_Memory->synch, Number_Of_Processors)
++  if (my_id == 0) { ROI_END(); }
++  BARRIER(G_Memory->synch, Number_Of_Processors)
++
+    if (my_id == 0) {
+       CLOCK(endtime);
+    }
+-   BARRIER(G_Memory->synch, Number_Of_Processors)
+ 
+    for (MY_TIME_STEP = 0; MY_TIME_STEP < Time_Steps; MY_TIME_STEP++) {
+      timing = &(MY_TIMING[MY_TIME_STEP]);
