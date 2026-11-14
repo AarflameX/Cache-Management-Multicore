@@ -85,3 +85,50 @@ benchmarks/<suite>/
   build.sh
   bin/
 ```
+
+## Running experiments
+
+`experiments.conf` lists `suite|benchmark|args|roi|timeout_sec`; inputs are
+placeholders to finalize before collecting performance results. Lines starting
+with `#` are ignored. `{cores}` matches workload workers to the simulated cores;
+`{repo}` expands to this checkout. A final `< file` selects stdin. The runner
+stages private input/data files and updates worker counts in the supplied
+WATER, BARNES, and FMM stdin files, without changing the originals.
+
+```bash
+./run_experiment.sh --dry-run
+./run_experiment.sh --filter '^bfs$' --cores "2" --variant test
+./run_experiment.sh --cores "2 4 8" --jobs 4
+./run_experiment.sh --cores "2 4 8" --variant candidate --extra-args ""
+```
+
+Run sweeps inside **tmux with the laptop plugged in**. The default core list is
+`2 4 8`; core counts must be positive and even. `--extra-args` forwards flags
+before the config's `--args`; the current config has no cache-tuning flags and rejects unsupported options. A variant
+names an output directory; it does not itself change the simulated hardware.
+
+Each run writes its own `results/<variant>/<suite>_<benchmark>_c<cores>/`,
+including `run.log`, `stats.txt`, and metadata. Successful, validated runs get
+`DONE` and are skipped on reruns. Failures/timeouts get `FAILED` and are retried.
+Use a new variant when changing inputs, options, or binaries: resume identifies
+runs by suite, benchmark, cores, and variant, not by a configuration hash.
+Concurrent sweeps into the same variant are locked out.
+
+`results/<variant>/summary.csv` includes every DONE run; `failed.txt` lists
+failures. Regenerate them with `python3 parse_stats.py results/<variant>`.
+The parser requires one ROI dump plus the exit dump, or three frame dumps plus
+the exit dump for VOLREND/VOLREND-NPL; it aggregates ROI demand hits/misses and
+omits the exit dump. Non-ROI conf records require one exit block. Missing stats
+or unexpected block counts fail validation and exclude the run from the CSV.
+The sweep exits nonzero if failures remain.
+
+`run.json` records the executable path and 12-character SHA-256 prefix, repository
+commit and dirty flag, resolved benchmark args, extra config args, UTC start
+timestamp, and elapsed wall time. `roi` is stored as an integer. Legacy metadata
+is accepted; absent wall time stays blank. The CSV also reports committed
+instructions, L1D/L2 MPKI, L1D access imbalance (max/min), and optional Ruby
+prefetch counters. Zero-access cores produce a warning and blank imbalance;
+zero instructions produce blank MPKI. L1 controllers must match the requested
+cores exactly; every discovered L2 bank is aggregated.
+
+Run parser fixtures without gem5 with `python3 -m unittest`.

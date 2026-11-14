@@ -3,8 +3,10 @@ benchmarks/*/src/
 benchmarks/*/bin/
 benchmarks/gap/bin-roi/
 
-# gem5 output
+# gem5 output and experiment results
 m5out/
 results/
-__pycache__/
 benchmarks/splash4/bin-roi/
+
+# Python bytecode (including test caches)
+__pycache__/
