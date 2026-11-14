@@ -47,6 +47,13 @@ Put `--args` last; use separate tokens or one string with shell-style quoting
 OpenMP workloads receive `OMP_NUM_THREADS`, `OMP_WAIT_POLICY=PASSIVE`, and
 `GOMP_SPINCOUNT=1` to allow workers to park promptly before process exit.
 
+The simulated memory capacity is **4 GiB** by default, set by `--mem-size` in
+`mesi_two_level_se_multi.py`. RAYTRACE at 8 cores exhausted the previous 2 GiB
+capacity. This changes capacity only; the single-channel DDR4-2400 timing model
+is unchanged. Pass `--mem-size SIZE` before the config's `--args` when invoking
+gem5 directly, or use the experiment runner's `--extra-args "--mem-size 2GiB"`
+to override it. `run_benchmark.sh` does not set a memory size.
+
 The runner works from any directory. gem5 writes `m5out/`, including
 `stats.txt`, in the current working directory. Both sample runs were verified
 to exit with status 0 and produce non-empty stats. Generated sources, binaries,

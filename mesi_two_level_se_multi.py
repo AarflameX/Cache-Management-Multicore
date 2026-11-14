@@ -30,6 +30,7 @@ requires(isa_required=ISA.X86, coherence_protocol_required=CoherenceProtocol.MES
 parser = argparse.ArgumentParser()
 parser.add_argument("--binary", required=True)
 parser.add_argument("--cores", type=int, default=2)
+parser.add_argument("--mem-size", default="4GiB", help="simulated physical memory capacity (default: 4GiB)")
 parser.add_argument("--input", help="file to use as benchmark stdin")
 parser.add_argument("--args", nargs=argparse.REMAINDER, default=[])
 parsed = parser.parse_args()
@@ -49,7 +50,7 @@ cache_hierarchy = MESITwoLevelCacheHierarchy(
     l2_size="256KiB", l2_assoc=8,
     num_l2_banks=NUM_L2_BANKS,
 )
-memory = SingleChannelDDR4_2400(size="2GiB")
+memory = SingleChannelDDR4_2400(size=parsed.mem_size)
 processor = SimpleProcessor(cpu_type=CPUTypes.TIMING, isa=ISA.X86, num_cores=parsed.cores)
 board = SimpleBoard(clk_freq="3GHz", processor=processor, memory=memory, cache_hierarchy=cache_hierarchy)
 
