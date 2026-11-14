@@ -88,8 +88,8 @@ benchmarks/<suite>/
 
 ## Running experiments
 
-`experiments.conf` lists `suite|benchmark|args|roi|timeout_sec`; inputs are
-placeholders to finalize before collecting performance results. Lines starting
+`experiments.conf` lists `suite|benchmark|args|roi|timeout_sec`; see the benchmark
+inputs table below for sizing measurements and pending cases. Lines starting
 with `#` are ignored. `{cores}` matches workload workers to the simulated cores;
 `{repo}` expands to this checkout. A final `< file` selects stdin. The runner
 stages private input/data files and updates worker counts in the supplied
@@ -132,3 +132,92 @@ zero instructions produce blank MPKI. L1 controllers must match the requested
 cores exactly; every discovered L2 bank is aggregated.
 
 Run parser fixtures without gem5 with `python3 -m unittest`.
+
+## Benchmark inputs
+
+Arguments below use `{cores}` for the worker count and `{repo}` for the checkout.
+Input filenames are relative to `benchmarks/splash4/inputs/`; `<` means stdin.
+The supplied 4-core measurements were taken with **4 jobs in parallel**;
+8-core times have not yet been measured. Resized cases need confirmation.
+
+| Suite | App | Args/input | 4-core wall time | Notes |
+| --- | --- | --- | --- | --- |
+| GAP | bfs | `-g 14 -n 1` | 860 s | |
+| GAP | bc | `-g 14 -n 1` | 863 s | |
+| GAP | cc | `-g 14 -n 1` | 854 s | Large dynamic chunks cause imbalance |
+| GAP | pr | `-g 14 -n 1` | 1142 s | Large dynamic chunks cause imbalance |
+| GAP | sssp | `-g 14 -n 1` | 1030 s | |
+| GAP | tc | `-g 12 -n 1` | resized, pending confirmation | Other GAP kernels use `-g 14` |
+| SPLASH-4 | FFT | `-p{cores} -m16` | 236 s | |
+| SPLASH-4 | LU-CONT | `-p{cores} -n256 -b16` | 266 s | |
+| SPLASH-4 | LU-NOCONT | `-p{cores} -n256 -b16` | 283 s | |
+| SPLASH-4 | RADIX | `-p{cores} -n262144 -r1024` | 281 s | |
+| SPLASH-4 | OCEAN-CONT | `-p{cores} -n66` | resized, pending confirmation | |
+| SPLASH-4 | OCEAN-NOCONT | `-p{cores} -n66` | resized, pending confirmation | |
+| SPLASH-4 | WATER-NSQUARED | `< water-nsquared-125.in` | 441 s | 125 molecules |
+| SPLASH-4 | WATER-SPATIAL | `< water-spatial-small.in` | 194 s | Minimum tested size; 125+ molecules timed out |
+| SPLASH-4 | CHOLESKY | `-p{cores} -t {repo}/benchmarks/splash4/inputs/cholesky-grid64.hb` | 13 s (prior grid64); resized, pending confirmation | Enlarged candidates: all three timed out; retain grid64 fallback; inherently imbalanced |
+| SPLASH-4 | BARNES | `< barnes-512.in` | 340 s | Inherently imbalanced |
+| SPLASH-4 | FMM | `< fmm-1024.in` | 420 s | |
+| SPLASH-4 | RAYTRACE | `-p{cores} {repo}/benchmarks/splash4/inputs/raytrace-small.env` | 664 s | |
+| SPLASH-4 | VOLREND | `{cores} head 1` | 428 s | Private copy of upstream head data |
+| SPLASH-4 | VOLREND-NPL | `{cores} head 1` | 441 s | Private copy of upstream head data |
+
+RADIOSITY is excluded: under gem5 it did not complete within 40 minutes at
+2 cores for either input tried (`-ae 5000 -en 0.05` and
+`-ae 2000.0 -en 0.005`). Its ROI patches and build support remain; the patches
+were validated natively.
+
+The L2 is 256 KiB over 2 banks at every core count. SPLASH apps have near-zero
+L2 miss rates, so L1D-side features mainly appear as L1-to-L2 latency and traffic
+savings. GAP has real L2 misses (6–12%). CHOLESKY and BARNES are inherently
+imbalanced; interpret aggregate cache results alongside per-core accesses.
+
+### Generating CHOLESKY inputs
+
+No generator accompanied the original input (introduced in commit `b8d8c71`).
+`cholesky-grid64.hb` is historically named for its **64 vertices**, an 8×8 grid.
+The new filenames grid128/grid192/grid256 name the **side length** instead:
+16,384 / 36,864 / 65,536 vertices. The generator writes a one-based symmetric
+lower-triangle Harwell-Boeing PSA pattern of a 2D five-point Laplacian;
+CHOLESKY supplies numeric values itself, matching the original convention.
+All three generated files are under 5 MB (397,423 / 894,991 / 1,591,898 bytes)
+and can be tracked. Reproduce them with:
+
+```bash
+python3 scripts/gen_cholesky_grid.py 8 /tmp/cholesky-grid64.hb
+cmp benchmarks/splash4/inputs/cholesky-grid64.hb /tmp/cholesky-grid64.hb
+python3 scripts/gen_cholesky_grid.py 128 benchmarks/splash4/inputs/cholesky-grid128.hb
+python3 scripts/gen_cholesky_grid.py 192 benchmarks/splash4/inputs/cholesky-grid192.hb
+python3 scripts/gen_cholesky_grid.py 256 benchmarks/splash4/inputs/cholesky-grid256.hb
+```
+
+The side-8 output was verified byte for byte against the original. Keep
+`-p{cores}` joined because CHOLESKY's filename scan does not skip separate
+option values. `-t` requests its factorization check.
+
+CHOLESKY sizing used four simulated cores with variants `chol128`, `chol192`,
+and `chol256`, each limited to 1,200 seconds. The clean reruns used finalized
+input files; an earlier attempt interrupted after a header edit during input
+reading was discarded. The three clean runs ran concurrently and overlapped
+the four GAP wait-policy comparisons for their first ten minutes, so wall
+measurements include that host contention.
+
+| Grid side | Wall seconds | Result | ROI instructions | L1D miss rate | L2 miss rate | Imbalance | Per-core L1D accesses (0–3) |
+| --- | ---: | --- | --- | --- | --- | --- | --- |
+| 128 | 1200.378491 | Timed out | unavailable | unavailable | unavailable | unavailable | unavailable |
+| 192 | 1200.316519 | Timed out | unavailable | unavailable | unavailable | unavailable | unavailable |
+| 256 | 1200.307357 | Timed out | unavailable | unavailable | unavailable | unavailable | unavailable |
+
+Every stats file was empty at timeout: no completed ROI dump was available,
+so ROI counters cannot be reported. None of the three enlarged grids finished,
+and none meets the approximately 600-second / 10-million-instruction target.
+The config therefore retains the known-working grid64 input with timeout 1800;
+its prior 13-second / approximately 0.1-million-ROI-instruction result is only a
+functional fallback. No larger usable input was established by these tests.
+Raw logs and metadata remain under `results/chol128`, `results/chol192`, and
+`results/chol256`. No additional sizing experiments or full sweep were run.
+
+The dry-run emits two lines per scheduled run (an output-directory comment
+and a command). Thus 20 apps × 3 core counts yield 60 commands but
+`./run_experiment.sh --dry-run | wc -l` prints 120. The launcher is unchanged.
