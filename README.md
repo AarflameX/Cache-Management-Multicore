@@ -137,15 +137,17 @@ Run parser fixtures without gem5 with `python3 -m unittest`.
 
 Arguments below use `{cores}` for the worker count and `{repo}` for the checkout.
 Input filenames are relative to `benchmarks/splash4/inputs/`; `<` means stdin.
-The supplied 4-core measurements were taken with **4 jobs in parallel**;
-8-core times have not yet been measured. Resized cases need confirmation.
+The original 4-core measurements were taken with **4 jobs in parallel**.
+The CHOLESKY ladder and patched GAP measurements are detailed below with their
+concurrency context. 8-core times have not yet been measured. Resized cases need
+confirmation where marked.
 
 | Suite | App | Args/input | 4-core wall time | Notes |
 | --- | --- | --- | --- | --- |
 | GAP | bfs | `-g 14 -n 1` | 860 s | |
 | GAP | bc | `-g 14 -n 1` | 863 s | |
-| GAP | cc | `-g 14 -n 1` | 854 s | Large dynamic chunks cause imbalance |
-| GAP | pr | `-g 14 -n 1` | 1142 s | Large dynamic chunks cause imbalance |
+| GAP | cc | `-g 14 -n 1` | 1026.55 s | Chunk 256; imbalance 1.578×; before/after below |
+| GAP | pr | `-g 14 -n 1` | 1237.17 s | Chunk 256; imbalance 1.013×; before/after below |
 | GAP | sssp | `-g 14 -n 1` | 1030 s | |
 | GAP | tc | `-g 12 -n 1` | resized, pending confirmation | Other GAP kernels use `-g 14` |
 | SPLASH-4 | FFT | `-p{cores} -m16` | 236 s | |
@@ -156,7 +158,7 @@ The supplied 4-core measurements were taken with **4 jobs in parallel**;
 | SPLASH-4 | OCEAN-NOCONT | `-p{cores} -n66` | resized, pending confirmation | |
 | SPLASH-4 | WATER-NSQUARED | `< water-nsquared-125.in` | 441 s | 125 molecules |
 | SPLASH-4 | WATER-SPATIAL | `< water-spatial-small.in` | 194 s | Minimum tested size; 125+ molecules timed out |
-| SPLASH-4 | CHOLESKY | `-p{cores} -t {repo}/benchmarks/splash4/inputs/cholesky-grid64.hb` | 13 s (prior grid64); resized, pending confirmation | Enlarged candidates: all three timed out; retain grid64 fallback; inherently imbalanced |
+| SPLASH-4 | CHOLESKY | `-p{cores} -t {repo}/benchmarks/splash4/inputs/cholesky-grid2304.hb` | 491.31 s | 2,304 unknowns, side 48; 30.25M ROI instructions; factorization check passed |
 | SPLASH-4 | BARNES | `< barnes-512.in` | 340 s | Inherently imbalanced |
 | SPLASH-4 | FMM | `< fmm-1024.in` | 420 s | |
 | SPLASH-4 | RAYTRACE | `-p{cores} {repo}/benchmarks/splash4/inputs/raytrace-small.env` | 664 s | |
@@ -175,48 +177,124 @@ imbalanced; interpret aggregate cache results alongside per-core accesses.
 
 ### Generating CHOLESKY inputs
 
-No generator accompanied the original input (introduced in commit `b8d8c71`).
-`cholesky-grid64.hb` is historically named for its **64 vertices**, an 8×8 grid.
-The new filenames grid128/grid192/grid256 name the **side length** instead:
-16,384 / 36,864 / 65,536 vertices. The generator writes a one-based symmetric
-lower-triangle Harwell-Boeing PSA pattern of a 2D five-point Laplacian;
-CHOLESKY supplies numeric values itself, matching the original convention.
-All three generated files are under 5 MB (397,423 / 894,991 / 1,591,898 bytes)
-and can be tracked. Reproduce them with:
+`cholesky-grid<N>.hb` is named by **unknown count / matrix order N**.
+The generator's positional argument is the **side length**; N = side².
+It writes the one-based lower-triangle Harwell-Boeing PSA pattern of a 2D
+five-point Laplacian. CHOLESKY supplies numeric values itself. A side-s grid
+has 3s²−2s stored nonzeros, or 5s²−4s after symmetric expansion.
+
+The original `cholesky-grid64.hb` has side 8, order 64, and 176 stored nonzeros
+(288 in the full symmetric matrix). Side 8 reproduces it byte for byte.
+The earlier timed-out files named grid128/grid192/grid256 instead used those
+numbers as side lengths: orders 16,384 / 36,864 / 65,536 with 48,896 / 110,208 /
+196,096 stored nonzeros (81,408 / 183,552 / 326,656 full symmetric nonzeros).
+Those files are no longer present; grid256 now means **256 unknowns, side 16**.
+The previous side-256 run was archived separately under `results/` before
+reusing the `chol256` variant name.
+
+Regenerate the ladder with the tracked script:
 
 ```bash
-python3 scripts/gen_cholesky_grid.py 8 /tmp/cholesky-grid64.hb
-cmp benchmarks/splash4/inputs/cholesky-grid64.hb /tmp/cholesky-grid64.hb
-python3 scripts/gen_cholesky_grid.py 128 benchmarks/splash4/inputs/cholesky-grid128.hb
-python3 scripts/gen_cholesky_grid.py 192 benchmarks/splash4/inputs/cholesky-grid192.hb
-python3 scripts/gen_cholesky_grid.py 256 benchmarks/splash4/inputs/cholesky-grid256.hb
+python3 scripts/gen_cholesky_grid.py 16 benchmarks/splash4/inputs/cholesky-grid256.hb
+python3 scripts/gen_cholesky_grid.py 24 benchmarks/splash4/inputs/cholesky-grid576.hb
+python3 scripts/gen_cholesky_grid.py 32 benchmarks/splash4/inputs/cholesky-grid1024.hb
+python3 scripts/gen_cholesky_grid.py 48 benchmarks/splash4/inputs/cholesky-grid2304.hb
+python3 scripts/gen_cholesky_grid.py 64 benchmarks/splash4/inputs/cholesky-grid4096.hb
 ```
 
-The side-8 output was verified byte for byte against the original. Keep
-`-p{cores}` joined because CHOLESKY's filename scan does not skip separate
-option values. `-t` requests its factorization check.
+The ladder files are 6,338 / 14,027 / 24,831 / 55,783 / 99,194 bytes,
+respectively, all below 5 MB. Files above 5 MB should be ignored and generated
+on demand. Keep `-p{cores}` joined because CHOLESKY's filename scan does not
+skip separate option values. `-t` requests its factorization check.
 
-CHOLESKY sizing used four simulated cores with variants `chol128`, `chol192`,
-and `chol256`, each limited to 1,200 seconds. The clean reruns used finalized
-input files; an earlier attempt interrupted after a header edit during input
-reading was discarded. The three clean runs ran concurrently and overlapped
-the four GAP wait-policy comparisons for their first ten minutes, so wall
-measurements include that host contention.
+CHOLESKY ladder runs used four simulated cores, a 900-second timeout, and
+`--jobs 4`, with one variant per input. At most four simulations ran at a
+time; patched PR/CC started when only the two largest ladder cases remained.
+Wall time includes setup, ROI, factorization checking, and exit.
 
-| Grid side | Wall seconds | Result | ROI instructions | L1D miss rate | L2 miss rate | Imbalance | Per-core L1D accesses (0–3) |
-| --- | ---: | --- | --- | --- | --- | --- | --- |
-| 128 | 1200.378491 | Timed out | unavailable | unavailable | unavailable | unavailable | unavailable |
-| 192 | 1200.316519 | Timed out | unavailable | unavailable | unavailable | unavailable | unavailable |
-| 256 | 1200.307357 | Timed out | unavailable | unavailable | unavailable | unavailable | unavailable |
+| Unknowns | Side | Wall seconds | ROI instructions | L1D miss rate | L2 miss rate | Imbalance | Per-core L1D accesses (0 / 1 / 2 / 3) |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | --- |
+| 256 | 16 | 35.340226 | 828,143 | 20.5368% | 0.6229% | 2.2651× | 98,148 / 54,005 / 49,076 / 111,161 |
+| 576 | 24 | 86.781080 | 3,476,415 | 19.4975% | 0.9124% | 1.6532× | 287,463 / 293,350 / 227,916 / 376,792 |
+| 1,024 | 32 | 163.125294 | 8,577,619 | 22.3959% | 1.6853% | 1.2626× | 757,859 / 621,589 / 681,114 / 784,810 |
+| 2,304 | 48 | 491.313782 | 30,254,451 | 22.3883% | 1.3354% | 1.4450× | 2,988,561 / 2,068,254 / 2,489,714 / 2,231,781 |
+| 4,096 | 64 | 900.314095 (timeout) | unavailable | unavailable | unavailable | unavailable | unavailable |
 
-Every stats file was empty at timeout: no completed ROI dump was available,
-so ROI counters cannot be reported. None of the three enlarged grids finished,
-and none meets the approximately 600-second / 10-million-instruction target.
-The config therefore retains the known-working grid64 input with timeout 1800;
-its prior 13-second / approximately 0.1-million-ROI-instruction result is only a
-functional fallback. No larger usable input was established by these tests.
-Raw logs and metadata remain under `results/chol128`, `results/chol192`, and
-`results/chol256`. No additional sizing experiments or full sweep were run.
+All four completed runs printed factorization check `PASSED`. The 4,096 case
+timed out with an empty stats file, so no ROI counters are available for it.
+Grid2304 is the largest candidate that finished under 600 seconds with at
+least 10M ROI instructions (491.31 s, 30.25M instructions). The config selects
+it with timeout 1800. These results do not indicate a universal input hang.
+Raw logs, stats, and metadata are in `results/chol256`, `results/chol576`,
+`results/chol1024`, `results/chol2304`, and `results/chol4096`.
+
+### GAP scheduling patch
+
+`benchmarks/gap/chunks.patch` changes the dynamic chunk size from 16,384 to
+256 in PR and CC. At `-g 14`, the nominal vertex count is 16,384, so the old
+chunk covered the whole loop: the heavy loops were not parallel. A chunk of
+256 yields 64 chunks, allowing four workers to share the work. The native
+verification graph reported 16,381 vertices, which also fits one old chunk
+and 64 new chunks.
+
+The patch changes every dynamic pragma in these two kernels:
+
+| Source location | Loop | ROI |
+| --- | --- | --- |
+| `pr.cc:45` | PageRank pull/update, with error reduction | Inside |
+| `cc.cc:60` | Component compression | Inside |
+| `cc.cc:107` | Sparse sampling link, both neighbor rounds | Inside |
+| `cc.cc:124` | Final undirected link | Inside, undirected branch |
+| `cc.cc:135` | Final directed link | Inside, directed branch |
+
+All use `schedule(dynamic, 256)` after patching. CC's two final-link branches
+are alternatives. Initializers without a schedule clause are unchanged.
+CC retains its serial `SampleFrequentElement` phase (1,024 samples plus
+histogram/max selection) inside the ROI. Graph construction, result analysis,
+and verification remain outside the ROI.
+
+The build script applies the scheduling patch with the same forward/reverse
+`git apply --check` mechanism as the existing ROI patch, for **both normal and
+ENABLE_ROI builds**. A fresh upstream checkout receives it automatically.
+Both patches were checked together against a clean upstream archive; normal
+and ROI builds succeeded. Normal four-thread PR and CC verification passed:
+
+```bash
+./benchmarks/gap/build.sh pr cc
+OMP_NUM_THREADS=4 OMP_WAIT_POLICY=PASSIVE GOMP_SPINCOUNT=1 benchmarks/gap/bin/pr -g 14 -n 1 -v
+OMP_NUM_THREADS=4 OMP_WAIT_POLICY=PASSIVE GOMP_SPINCOUNT=1 benchmarks/gap/bin/cc -g 14 -n 1 -v
+ENABLE_ROI=1 ./benchmarks/gap/build.sh pr cc
+```
+
+PR reported total error 0.00004 and verification PASS; CC reported verification
+PASS. Changing PR's in-place update order can affect convergence and instruction
+count, so the before/after numbers describe each measured run.
+
+The unpatched reference is `results/rest/summary.csv`; patched runs used
+`-g 14 -n 1`, four simulated cores, variants `pr_patched` / `cc_patched`,
+and 1,800-second timeouts. Both patched runs completed and passed statistics
+validation. All per-core figures below are ROI L1D demand hits + misses.
+
+| App | Version | ROI instructions | Wall seconds | L1D imbalance | Per-core L1D accesses (0 / 1 / 2 / 3) |
+| --- | --- | ---: | ---: | ---: | --- |
+| pr | Unpatched (chunk 16384) | 30,739,092 | 1142.303641 | 786.5608× | 12,344,285 / 15,696 / 15,952 / 15,694 |
+| pr | Patched (chunk 256) | 28,226,325 | 1237.171296 | 1.0127× | 2,856,666 / 2,855,516 / 2,848,368 / 2,820,769 |
+| cc | Unpatched (chunk 16384) | 2,171,519 | 854.446374 | 131.2099× | 302,668 / 353,742 / 2,954 / 2,696 |
+| cc | Patched (chunk 256) | 2,182,520 | 1026.545435 | 1.5779× | 228,964 / 145,103 / 146,222 / 146,089 |
+
+The scheduling patch substantially reduced access imbalance in both kernels.
+CC still has a higher core-0 count, consistent with its serial sampling phase
+and runtime overhead. PR distributes accesses almost evenly. The PR instruction count
+also changed, consistent with its order-sensitive in-place updates.
+
+Wall time increased in these runs. It includes unchanged graph setup, and
+host concurrency was not identical throughout the before/after measurements:
+the original measurements used four jobs in parallel; the new runs started
+alongside the two largest CHOLESKY cases and later ran with fewer active jobs.
+These wall times are not a controlled speedup comparison. Simulated ROI time
+fell from 76.082 to 18.372 ms for PR, and from
+3.725 to 1.334 ms for CC. Raw patched results remain in
+`results/pr_patched` and `results/cc_patched`.
 
 The dry-run emits two lines per scheduled run (an output-directory comment
 and a command). Thus 20 apps × 3 core counts yield 60 commands but

@@ -1,0 +1,49 @@
+--- a/src/pr.cc
++++ b/src/pr.cc
+@@ -42,7 +42,7 @@
+     outgoing_contrib[n] = init_score / g.out_degree(n);
+   for (int iter=0; iter < max_iters; iter++) {
+     double error = 0;
+-    #pragma omp parallel for reduction(+ : error) schedule(dynamic, 16384)
++    #pragma omp parallel for reduction(+ : error) schedule(dynamic, 256)
+     for (NodeID u=0; u < g.num_nodes(); u++) {
+       ScoreT incoming_total = 0;
+       for (NodeID v : g.in_neigh(u))
+--- a/src/cc.cc
++++ b/src/cc.cc
+@@ -57,7 +57,7 @@
+ 
+ // Reduce depth of tree for each component to 1 by crawling up parents
+ void Compress(const Graph &g, pvector<NodeID>& comp) {
+-  #pragma omp parallel for schedule(dynamic, 16384)
++  #pragma omp parallel for schedule(dynamic, 256)
+   for (NodeID n = 0; n < g.num_nodes(); n++) {
+     while (comp[n] != comp[comp[n]]) {
+       comp[n] = comp[comp[n]];
+@@ -104,7 +104,7 @@
+   // Process a sparse sampled subgraph first for approximating components.
+   // Sample by processing a fixed number of neighbors for each node (see paper)
+   for (int r = 0; r < neighbor_rounds; ++r) {
+-  #pragma omp parallel for schedule(dynamic,16384)
++  #pragma omp parallel for schedule(dynamic,256)
+     for (NodeID u = 0; u < g.num_nodes(); u++) {
+       for (NodeID v : g.out_neigh(u, r)) {
+         // Link at most one time if neighbor available at offset r
+@@ -121,7 +121,7 @@
+ 
+   // Final 'link' phase over remaining edges (excluding the largest component)
+   if (!g.directed()) {
+-    #pragma omp parallel for schedule(dynamic, 16384)
++    #pragma omp parallel for schedule(dynamic, 256)
+     for (NodeID u = 0; u < g.num_nodes(); u++) {
+       // Skip processing nodes in the largest component
+       if (comp[u] == c)
+@@ -132,7 +132,7 @@
+       }
+     }
+   } else {
+-    #pragma omp parallel for schedule(dynamic, 16384)
++    #pragma omp parallel for schedule(dynamic, 256)
+     for (NodeID u = 0; u < g.num_nodes(); u++) {
+       if (comp[u] == c)
+         continue;

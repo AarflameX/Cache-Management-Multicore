@@ -22,6 +22,12 @@ for kernel in "${kernels[@]}"; do
         *) echo "ERROR: unsupported GAP kernel: $kernel" >&2; exit 1 ;;
     esac
 done
+# Keep scheduling identical in native and ROI binaries. Sources are ignored;
+# retain this change as a patch, using the ROI patch's repeat-build checks.
+if ! git -C "$source_dir" apply --reverse --check "${suite_dir}/chunks.patch" 2>/dev/null; then
+    git -C "$source_dir" apply --check "${suite_dir}/chunks.patch"
+    git -C "$source_dir" apply "${suite_dir}/chunks.patch"
+fi
 flags='-std=c++11 -O3 -Wall -fopenmp -static -march=x86-64'
 roi_libs=''
 output_dir="${suite_dir}/bin"

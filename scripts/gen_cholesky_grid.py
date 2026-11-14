@@ -2,8 +2,9 @@
 """Write the symmetric lower-triangle pattern of a 2D five-point Laplacian.
 
 The argument is the grid SIDE, not the number of vertices. PSA omits numeric
-values: SPLASH CHOLESKY supplies its own positive-definite values. Side 8
-reproduces the historical (misleadingly named) cholesky-grid64.hb byte for byte.
+values: SPLASH CHOLESKY supplies its own positive-definite values. Name output
+files cholesky-grid<SIDE*SIDE>.hb, by unknown count. Side 8 reproduces the
+historical cholesky-grid64.hb byte for byte.
 """
 import argparse
 from pathlib import Path
