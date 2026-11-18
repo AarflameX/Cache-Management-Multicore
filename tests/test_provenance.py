@@ -11,7 +11,7 @@ from unittest.mock import patch
 
 from scripts.export_run import export_run
 from scripts.merge_summaries import merge_summaries
-from scripts.run_provenance import GUARD_FIELDS, check_existing, preflight
+from scripts.run_provenance import GUARD_FIELDS, check_existing, gem5_build_info, preflight
 from tests.test_parse_stats import coherence_block
 
 
@@ -116,6 +116,8 @@ class ProvenanceTests(unittest.TestCase):
         tasks.write_bytes(("\0".join(fields) + "\0").encode())
         return base, state, (self.root, base, state, gem5, conf, "test", "5489", "", tasks)
 
+    @patch("scripts.run_provenance.gem5_build_info",
+           return_value={"gem5_isa": "X86", "gem5_protocol": "MESI_Two_Level"})
     @patch("scripts.run_provenance.gem5_commit", return_value="commit")
     @patch("scripts.run_provenance.subprocess.check_output", return_value="4")
     def test_retry_archives_failed_and_incomplete_without_losing_previous_attempts(self, *_):
@@ -145,6 +147,8 @@ class ProvenanceTests(unittest.TestCase):
         self.assertEqual((archived[2] / "run.json").read_text(), "partial metadata")
         self.assertTrue((state / "gap_pr_c4.json").is_file())
 
+    @patch("scripts.run_provenance.gem5_build_info",
+           return_value={"gem5_isa": "X86", "gem5_protocol": "MESI_Two_Level"})
     @patch("scripts.run_provenance.gem5_commit", return_value="commit")
     @patch("scripts.run_provenance.subprocess.check_output", return_value="4")
     def test_retry_does_not_archive_when_finished_run_mismatches(self, *_):
@@ -208,7 +212,9 @@ class ProvenanceTests(unittest.TestCase):
         directory.mkdir(parents=True)
         common = dict(suite="gap", benchmark="bfs", cores=4, seed=5489,
                       gem5_sha256="a" * 64, config_sha256="b" * 64,
-                      benchmark_sha256="c" * 64, runner="person1")
+                      benchmark_sha256="c" * 64, runner="person1",
+                      gem5_commit="f" * 40, gem5_isa="X86", gem5_protocol="MESI_Two_Level",
+                      args="-g 10 -n 1", extra_args="")
 
         def write(name, **changes):
             (directory / f"{name}.json").write_text(json.dumps({"run": dict(common, **changes)}))
@@ -228,3 +234,51 @@ class ProvenanceTests(unittest.TestCase):
         self.assertIn("seed differs", conflict.stdout)
         self.assertIn("gap_bfs_c2.json (runner person3)", conflict.stdout)
         self.assertIn("Baseline-v2 coverage: 3/16", conflict.stdout)
+
+
+    @patch("scripts.run_provenance.subprocess.check_output")
+    def test_build_info_records_enabled_isas_and_protocol(self, command):
+        command.return_value = ("gem5 version 25.1.0.1\n    USE_X86_ISA = True\n"
+                                "    USE_ARM_ISA = True\n    USE_RISCV_ISA = False\n"
+                                "    PROTOCOL = MESI_Two_Level\n")
+        self.assertEqual(gem5_build_info(Path("/tmp/gem5.opt")),
+                         {"gem5_isa": "ARM,X86", "gem5_protocol": "MESI_Two_Level"})
+        command.assert_called_once_with(["/tmp/gem5.opt", "--build-info"], text=True)
+
+    def test_export_checker_allows_host_binary_differences_but_rejects_build_and_args(self):
+        directory = self.data / "fixture"
+        directory.mkdir(parents=True)
+        common = dict(suite="gap", benchmark="bfs", cores=4, seed=5489,
+                      gem5_sha256="a" * 64, config_sha256="b" * 64,
+                      benchmark_sha256="c" * 64, runner="fedora", gem5_commit="f" * 40,
+                      gem5_isa="X86", gem5_protocol="MESI_Two_Level", extra_args="",
+                      repo_root="/home/fedora/repo", args="/home/fedora/repo/input.txt")
+        (directory / "fedora.json").write_text(json.dumps({"run": common}))
+        wsl = dict(common, runner="ubuntu-wsl", gem5_sha256="d" * 64,
+                   repo_root="/home/wsl/repo", args="/home/wsl/repo/input.txt")
+        script = Path(__file__).resolve().parents[1] / "scripts/check_variant.py"
+        command = [sys.executable, str(script), str(directory)]
+
+        def check(changes):
+            (directory / "wsl.json").write_text(json.dumps({"run": dict(wsl, **changes)}))
+            return subprocess.run(command, capture_output=True, text=True)
+
+        result = check({})
+        self.assertEqual(result.returncode, 0)
+        self.assertIn("INFO: gem5_sha256 differs:", result.stdout)
+        self.assertIn("wsl.json (runner ubuntu-wsl)", result.stdout)
+        same_runner = check({"runner": "fedora"})
+        self.assertEqual(same_runner.returncode, 1)
+        self.assertIn("gem5_sha256 differs:", same_runner.stdout)
+        self.assertNotIn("INFO: gem5_sha256 differs:", same_runner.stdout)
+        for field, value in {"gem5_commit": "e" * 40, "gem5_isa": "ARM",
+                             "gem5_protocol": "CHI", "args": "-g 12",
+                             "extra_args": "--mem-size 2GiB"}.items():
+            with self.subTest(field=field):
+                result = check({field: value})
+                self.assertEqual(result.returncode, 1)
+                self.assertRegex(result.stdout, rf"{field}( for gap/bfs c4)? differs:")
+                self.assertIn("wsl.json (runner ubuntu-wsl)", result.stdout)
+        result = check({"gem5_protocol": None})
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("wsl.json (runner ubuntu-wsl): missing or invalid gem5_protocol", result.stdout)

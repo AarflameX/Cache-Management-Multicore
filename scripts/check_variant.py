@@ -9,6 +9,9 @@ import sys
 
 from run_provenance import VARIANT_FIELDS
 
+EXPORT_BUILD_FIELDS = ("gem5_commit", "gem5_isa", "gem5_protocol")
+HASH_FIELDS = ("gem5_sha256", "config_sha256", "benchmark_sha256")
+
 V2_BENCHMARKS = {
     "gap": ("bfs", "pr"),
     "splash4": ("BARNES", "FFT", "LU-NOCONT", "OCEAN-CONT", "OCEAN-NOCONT", "RADIX"),
@@ -17,6 +20,7 @@ V2_BENCHMARKS = {
 
 def check_variant(directory, cores=(4,)):
     groups = defaultdict(lambda: defaultdict(list))
+    runner_hashes = defaultdict(set)
     exports = sorted(path for path in directory.glob("*.json") if path.is_file())
     if exports:
         sources = [(path, path, True) for path in exports]
@@ -36,7 +40,10 @@ def check_variant(directory, cores=(4,)):
                 meta = meta["run"]
             if not isinstance(meta, dict):
                 raise ValueError("run metadata must be an object")
-            label = f"{entry.name} (runner {meta.get('runner') or 'unknown'})"
+            runner = meta.get("runner") or "unknown"
+            if not isinstance(runner, str):
+                raise ValueError("invalid runner name")
+            label = f"{entry.name} (runner {runner})"
             suite, benchmark, count = (meta[key] for key in ("suite", "benchmark", "cores"))
             if (not isinstance(suite, str) or not isinstance(benchmark, str)
                     or type(count) is not int or count <= 0):
@@ -47,20 +54,42 @@ def check_variant(directory, cores=(4,)):
             print(f"{label}: {error}")
             valid = False
             continue
-        for field in (*VARIANT_FIELDS, "benchmark_sha256"):
+        fields = (*VARIANT_FIELDS, "benchmark_sha256")
+        if exports:
+            fields += (*EXPORT_BUILD_FIELDS, "args", "extra_args")
+        for field in fields:
             value = meta.get(field)
-            usable = (type(value) is int and 0 <= value < 2**32 if field == "seed"
-                      else isinstance(value, str) and re.fullmatch(r"[0-9a-f]{64}", value))
+            if field in HASH_FIELDS:
+                usable = isinstance(value, str) and re.fullmatch(r"[0-9a-f]{64}", value)
+            elif field == "seed":
+                usable = type(value) is int and 0 <= value < 2**32
+            elif field == "gem5_commit":
+                usable = isinstance(value, str) and re.fullmatch(r"[0-9a-f]{40}", value)
+            else:
+                usable = isinstance(value, str) and (field in ("args", "extra_args") or value.strip())
             if not usable:
                 print(f"{label}: missing or invalid {field}")
                 valid = False
                 continue
-            group = f"{field} for {suite}/{benchmark}" if field == "benchmark_sha256" else field
+            group = field
+            if field == "benchmark_sha256":
+                group = f"{field} for {suite}/{benchmark}"
+            elif field == "args":
+                group = f"{field} for {suite}/{benchmark} c{count}"
+                root = meta.get("repo_root")
+                if isinstance(root, str) and root.startswith("/"):
+                    value = value.replace(root.rstrip("/") + "/", "{repo}/")
             groups[group][value].append(label)
+            if exports and field == "gem5_sha256":
+                runner_hashes[runner].add(value)
     for field, values in sorted(groups.items()):
         if len(values) > 1:
-            valid = False
-            print(f"{field} differs:")
+            informational = (bool(exports) and field == "gem5_sha256"
+                             and all(len(hashes) == 1 for hashes in runner_hashes.values()))
+            if not informational:
+                valid = False
+            prefix = "INFO: " if informational else ""
+            print(f"{prefix}{field} differs:")
             for value, names in sorted(values.items(), key=lambda entry: (-len(entry[1]), entry[0])):
                 print(f"  {value}: {', '.join(names)}")
     print(f"{directory}: {'consistent' if valid else 'inconsistent'} ({len(sources)} runs)")

@@ -4,6 +4,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import subprocess
 import sys
 
@@ -28,6 +29,17 @@ def gem5_commit(binary):
             return subprocess.check_output(["git", "-C", str(root), "rev-parse", "HEAD"],
                                            text=True).strip()
     raise ValueError("cannot locate gem5 source checkout; set GEM5_ROOT")
+
+
+def gem5_build_info(binary):
+    output = subprocess.check_output([str(binary), "--build-info"], text=True)
+    options = dict(re.findall(r"^ +([A-Za-z0-9_]+) = (.*)$", output, re.MULTILINE))
+    isas = sorted(match[1] for option, value in options.items()
+                  if value == "True" and (match := re.fullmatch(r"USE_(.+)_ISA", option)))
+    protocol = options.get("PROTOCOL", "").strip()
+    if not isas or not protocol:
+        raise ValueError(f"{binary}: --build-info lacks enabled ISAs or PROTOCOL")
+    return {"gem5_isa": ",".join(isas), "gem5_protocol": protocol}
 
 
 def retryable(run):
@@ -84,7 +96,8 @@ def preflight(repo, base, state, gem5, conf, runner, seed, extra, tasks, retry="
                   experiments_conf_sha256=sha256(conf), seed=int(seed),
                   runner=runner, nproc=int(subprocess.check_output(["nproc"])),
                   kernel=os.uname().release, repo_commit=git("rev-parse", "HEAD"),
-                  repo_dirty=bool(git("status", "--porcelain")), extra_args=extra)
+                  repo_dirty=bool(git("status", "--porcelain")), repo_root=str(repo),
+                  extra_args=extra, **gem5_build_info(gem5))
     items = Path(tasks).read_bytes().decode().split("\0")[:-1]
     hashes = {}
     names = set()
