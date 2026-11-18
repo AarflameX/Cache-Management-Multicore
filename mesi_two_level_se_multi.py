@@ -12,6 +12,7 @@ Usage:
 
 import argparse
 import shlex
+from _m5 import core as gem5_core
 from gem5.utils.requires import requires
 from gem5.isas import ISA
 from gem5.coherence_protocol import CoherenceProtocol
@@ -32,6 +33,7 @@ parser.add_argument("--binary", required=True)
 parser.add_argument("--cores", type=int, default=2)
 parser.add_argument("--mem-size", default="4GiB", help="simulated physical memory capacity (default: 4GiB)")
 parser.add_argument("--input", help="file to use as benchmark stdin")
+parser.add_argument("--seed", type=int, default=5489)
 parser.add_argument("--args", nargs=argparse.REMAINDER, default=[])
 parsed = parser.parse_args()
 if len(parsed.args) == 1:
@@ -39,6 +41,12 @@ if len(parsed.args) == 1:
         parsed.args = shlex.split(parsed.args[0])
     except ValueError as error:
         parser.error(f"invalid --args: {error}")
+
+if not 0 <= parsed.seed < 2**32:
+    parser.error("--seed must be an unsigned 32-bit integer")
+# Keep gem5's native initialization for its built-in default.
+if parsed.seed != 5489:
+    gem5_core.seedRandom(parsed.seed)
 
 NUM_L2_BANKS = 2
 if parsed.cores <= 0 or parsed.cores % NUM_L2_BANKS:

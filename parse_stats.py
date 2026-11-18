@@ -187,6 +187,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("directory", type=Path)
     parser.add_argument("--validate", action="store_true", help="validate a single run before writing DONE")
+    parser.add_argument("--preserve-runs", action="store_true",
+                        help="leave run markers untouched when reporting invalid stats")
     args = parser.parse_args()
     if args.validate:
         try:
@@ -199,14 +201,16 @@ def main():
     for done in sorted(args.directory.glob("*/DONE")):
         run = done.parent
         if (run / "FAILED").exists():
-            done.unlink()
+            if not args.preserve_runs:
+                done.unlink()
             continue
         try:
             rows.append(parse_run(run))
         except (OSError, ValueError, KeyError, TypeError, InvalidOperation) as error:
             print(f"WARNING: {run.name}: {error}", file=sys.stderr)
-            done.unlink()
-            (run / "FAILED").write_text(f"parsing failed: {error}\n")
+            if not args.preserve_runs:
+                done.unlink()
+                (run / "FAILED").write_text(f"parsing failed: {error}\n")
             errors += 1
     temporary = args.directory / "summary.csv.tmp"
     with temporary.open("w", newline="") as output:

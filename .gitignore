@@ -1,12 +1,14 @@
 # Suite build products
 benchmarks/*/src/
 benchmarks/*/bin/
-benchmarks/gap/bin-roi/
+benchmarks/*/bin-roi/
 
 # gem5 output and experiment results
 m5out/
 results/
-benchmarks/splash4/bin-roi/
+data/*/summary.csv
+gem5.opt
+gem5.*.opt
 
 # Python bytecode (including test caches)
 __pycache__/

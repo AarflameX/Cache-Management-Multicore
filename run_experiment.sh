@@ -10,7 +10,8 @@ if [[ ${EXPERIMENT_GEM5_ADAPTER:-0} == 1 ]]; then
 import os, shlex, sys
 args = sys.argv[1:]
 index = args.index('--args') if '--args' in args else len(args)
-args[index:index] = shlex.split(os.environ['EXPERIMENT_EXTRA'])
+args[index:index] = [*shlex.split(os.environ['EXPERIMENT_EXTRA']),
+                     '--seed', os.environ['EXPERIMENT_SEED']]
 os.execv(os.environ['EXPERIMENT_GEM5'], [os.environ['EXPERIMENT_GEM5'],
          '--outdir=' + os.environ['EXPERIMENT_OUT'], *args])
 PY
@@ -20,17 +21,17 @@ die() { echo "ERROR: $*" >&2; exit 2; }
 
 if [[ ${1:-} == --worker ]]; then
     shift
-    suite=$1 benchmark=$2 args=$3 roi=$4 limit=$5 core=$6
+    suite=$1 benchmark=$2 limit=$5 core=$6
     name="${suite}_${benchmark}_c${core}"
     out="$EXPERIMENT_BASE/$name"
     status="$EXPERIMENT_STATE/$name.status"
-    mkdir -p "$out"
     if [[ -f "$out/stats.txt" && -f "$out/DONE" && ! -f "$out/FAILED" ]]; then
+        python3 "$repo/scripts/run_provenance.py" check "$out" "$EXPERIMENT_STATE/$name.json"
         echo skipped > "$status"
         echo "SKIP $name"
         exit 0
     fi
-    rm -f -- "$out/DONE" "$out/FAILED" "$out/stats.txt" "$out/run.json"
+    mkdir -- "$out" || die "$out already exists; use a new --variant"
     pgid=''
     watchdog=''
     finish_metadata() {
@@ -75,17 +76,15 @@ PYMETA
     export EXPERIMENT_STARTED_MONO
     EXPERIMENT_STARTED_MONO=$(python3 -c 'import time; print(time.monotonic())')
     # Prepare private stdin/data copies and tokenize args without evaluating shell code.
-    if ! python3 - "$repo" "$out" "$suite" "$benchmark" "$args" "$roi" "$core" "$EXPERIMENT_VARIANT" <<'PY' > "$out/command.nul" 2> "$out/run.log"
-import datetime, json, os, pathlib, shlex, shutil, sys
-repo, out, suite, bench, text, roi, core, variant = sys.argv[1:]
+    if ! python3 - "$repo" "$out" "$EXPERIMENT_STATE/$name.json" <<'PY' > "$out/command.nul" 2> "$out/run.log"
+import datetime, json, pathlib, shlex, shutil, sys
+repo, out, metadata = sys.argv[1:]
 root, run = pathlib.Path(repo), pathlib.Path(out)
-resolved_args = text.replace('{cores}', core).replace('{repo}', repo)
-meta = dict(suite=suite, benchmark=bench, cores=int(core), variant=variant, roi=int(roi),
-            gem5_bin=os.environ['EXPERIMENT_GEM5'], gem5_sha256=os.environ['EXPERIMENT_GEM5_SHA256'],
-            repo_commit=os.environ['EXPERIMENT_REPO_COMMIT'],
-            repo_dirty=os.environ['EXPERIMENT_REPO_DIRTY'] == '1',
-            args=resolved_args, extra_args=os.environ['EXPERIMENT_EXTRA'],
-            start_timestamp=datetime.datetime.now(datetime.timezone.utc).isoformat(), wall_seconds=None)
+meta = json.loads(pathlib.Path(metadata).read_text())
+suite, bench, core, roi, resolved_args = (str(meta[key]) for key in
+                                         ('suite', 'benchmark', 'cores', 'roi', 'args'))
+meta.update(start_timestamp=datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            wall_seconds=None)
 (run / 'run.json').write_text(json.dumps(meta, indent=2) + '\n')
 tokens = shlex.split(resolved_args)
 command = [str(root / 'run_benchmark.sh'), '--suite', suite, '--benchmark', bench, '--cores', core]
@@ -181,21 +180,24 @@ conf="$repo/experiments.conf"
 filter='.*'
 results=results
 dry=0
+seed=5489
+runner=$(hostname)
 while (( $# )); do
     case "$1" in
-        --cores|--variant|--extra-args|--gem5-bin|--jobs|--conf|--filter|--results)
+        --cores|--variant|--extra-args|--gem5-bin|--jobs|--conf|--filter|--results|--seed|--runner)
             (( $# >= 2 )) || die "$1 requires a value"
             case "$1" in
                 --cores) cores=$2 ;; --variant) variant=$2 ;; --extra-args) extra=$2 ;;
                 --gem5-bin) gem5=$2 ;; --jobs) jobs=$2 ;; --conf) conf=$2 ;;
                 --filter) filter=$2 ;; --results) results=$2 ;;
+                --seed) seed=$2 ;; --runner) runner=$2 ;;
             esac
             shift 2 ;;
         --dry-run) dry=1; shift ;;
         -h|--help)
             echo 'Usage: ./run_experiment.sh [--cores "2 4 8"] [--variant NAME]'
             echo '  [--extra-args "..."] [--gem5-bin PATH] [--jobs N] [--conf FILE]'
-            echo '  [--filter REGEX] [--dry-run] [--results DIR]'
+            echo '  [--filter REGEX] [--dry-run] [--results DIR] [--seed N] [--runner NAME]'
             exit 0 ;;
         *) die "unknown option: $1" ;;
     esac
@@ -228,9 +230,19 @@ while IFS= read -r line || [[ -n "$line" ]]; do
         records+=("$suite" "$benchmark" "$args" "$roi" "$limit")
     fi
 done < "$conf"
-python3 -c 'import shlex,sys; shlex.split(sys.argv[1])' "$extra" || die 'invalid --extra-args'
+python3 - "$extra" <<'PYEXTRA' || die 'invalid --extra-args (use --seed separately and set benchmark args in the conf)'
+import shlex
+import sys
+
+reserved = ("--arg", "--args", "--s", "--se", "--see", "--seed")
+if any(arg.split("=", 1)[0] in reserved for arg in shlex.split(sys.argv[1])):
+    sys.exit(1)
+PYEXTRA
+seed=$(python3 -c 'import sys; n = int(sys.argv[1]); sys.exit(1) if not 0 <= n < 2**32 else print(n)' "$seed" 2>/dev/null) ||
+    die '--seed must be an unsigned 32-bit integer'
+[[ -n "$runner" ]] || die '--runner must not be empty'
 gem5=$(realpath -m -- "$gem5")
-base=$(realpath -m -- "$results/$variant")
+base="$(realpath -m -- "$results")/$variant"
 if (( dry )); then
     for (( i=0; i<${#records[@]}; i+=5 )); do
         for core in "${core_list[@]}"; do
@@ -238,9 +250,9 @@ if (( dry )); then
             out="$base/${suite}_${benchmark}_c$core"
             args=${records[i+2]//\{cores\}/$core}
             args=${args//\{repo\}/$repo}
-            python3 - "$out" "${records[i+4]}" "$gem5" "$repo" "$suite" "$benchmark" "$core" "${records[i+3]}" "$args" "$extra" <<'PYDRY'
+            python3 - "$out" "${records[i+4]}" "$gem5" "$repo" "$suite" "$benchmark" "$core" "${records[i+3]}" "$args" "$extra" "$seed" <<'PYDRY'
 import shlex, sys
-out, limit, gem5, repo, suite, bench, core, roi, args, extra = sys.argv[1:]
+out, limit, gem5, repo, suite, bench, core, roi, args, extra, seed = sys.argv[1:]
 tokens = shlex.split(args)
 command = [repo + '/run_benchmark.sh', '--suite', suite, '--benchmark', bench, '--cores', core]
 if roi == '1':
@@ -251,7 +263,7 @@ if '<' in tokens:
     del tokens[index:]
 command += ['--args', *tokens]
 env = ['env', 'EXPERIMENT_GEM5_ADAPTER=1', 'EXPERIMENT_OUT=' + out,
-       'EXPERIMENT_GEM5=' + gem5, 'EXPERIMENT_EXTRA=' + extra,
+       'EXPERIMENT_GEM5=' + gem5, 'EXPERIMENT_EXTRA=' + extra, 'EXPERIMENT_SEED=' + seed,
        'GEM5_BIN=' + repo + '/run_experiment.sh']
 print(f'# outdir={out}; timeout={limit}s; stage private input/data files here')
 print('(cd ' + shlex.quote(out) + ' && ' + shlex.join(env + ['setsid'] + command) + ')')
@@ -262,30 +274,15 @@ PYDRY
 fi
 for utility in setsid xargs flock python3; do command -v "$utility" >/dev/null || die "$utility is required"; done
 [[ -x "$gem5" ]] || die "gem5 is not executable: $gem5"
-# Hash the executable once per sweep, not once per parallel worker.
-EXPERIMENT_GEM5_SHA256=$(python3 - "$gem5" <<'PYHASH'
-import hashlib, sys
-hash_value = hashlib.sha256()
-with open(sys.argv[1], 'rb') as executable:
-    for chunk in iter(lambda: executable.read(1024 * 1024), b''):
-        hash_value.update(chunk)
-print(hash_value.hexdigest()[:12])
-PYHASH
-)
-EXPERIMENT_REPO_COMMIT=$(git -C "$repo" rev-parse --short HEAD)
-EXPERIMENT_REPO_DIRTY=0
-if [[ -n $(git -C "$repo" status --porcelain --untracked-files=normal) ]]; then
-    EXPERIMENT_REPO_DIRTY=1
-fi
-export EXPERIMENT_GEM5_SHA256 EXPERIMENT_REPO_COMMIT EXPERIMENT_REPO_DIRTY
+[[ ! -L "$base" ]] || die "$base is a symlink; use a new --variant"
 mkdir -p "$base"
-exec 8> "$base/.sweep.lock"
+exec 8>> "$base/.sweep.lock"
 flock -n 8 || die "another sweep is running in $base"
 state=$(mktemp -d "$base/.sweep.XXXXXX")
 mkfifo "$state/timer"
 exec 9<> "$state/timer"
-export EXPERIMENT_BASE="$base" EXPERIMENT_STATE="$state" EXPERIMENT_VARIANT="$variant"
-export EXPERIMENT_EXTRA="$extra" EXPERIMENT_GEM5="$gem5"
+export EXPERIMENT_BASE="$base" EXPERIMENT_STATE="$state"
+export EXPERIMENT_EXTRA="$extra" EXPERIMENT_GEM5="$gem5" EXPERIMENT_SEED="$seed"
 cleanup() {
     rm -f -- "$state"/*
     rmdir -- "$state"
@@ -306,7 +303,7 @@ interrupted() {
         kill -KILL -- "-$pid" 2>/dev/null || true
     done
     wait 2>/dev/null || true
-    python3 "$repo/parse_stats.py" "$base" || true
+    python3 "$repo/parse_stats.py" --preserve-runs "$base" || true
     exit 130
 }
 trap interrupted INT TERM HUP
@@ -316,11 +313,13 @@ for (( i=0; i<${#records[@]}; i+=5 )); do
         printf '%s\0' "${records[@]:i:5}" "$core"
     done
 done > "$state/tasks"
+python3 "$repo/scripts/run_provenance.py" "$repo" "$base" "$state" "$gem5" \
+    "$conf" "$runner" "$seed" "$extra" "$state/tasks"
 xargs -0 -r -n 6 -P "$jobs" "$self" --worker < "$state/tasks" &
 dispatcher=$!
 result=0
 wait "$dispatcher" || result=$?
-python3 "$repo/parse_stats.py" "$base" || result=1
+python3 "$repo/parse_stats.py" --preserve-runs "$base" || result=1
 done_count=0 skipped_count=0 failed_count=0
 for file in "$state"/*.status; do
     [[ -f "$file" ]] || continue
