@@ -187,8 +187,12 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("directory", type=Path)
     parser.add_argument("--validate", action="store_true", help="validate a single run before writing DONE")
-    parser.add_argument("--preserve-runs", action="store_true",
-                        help="leave run markers untouched when reporting invalid stats")
+    markers = parser.add_mutually_exclusive_group()
+    markers.add_argument("--preserve-runs", dest="mark_invalid_runs", action="store_false",
+                         help="preserve run markers (default)")
+    markers.add_argument("--mark-invalid-runs", action="store_true",
+                         help="remove invalid DONE markers and record parsing failures in FAILED")
+    parser.set_defaults(mark_invalid_runs=False)
     args = parser.parse_args()
     if args.validate:
         try:
@@ -198,17 +202,19 @@ def main():
             return 1
         return 0
     rows, errors = [], 0
-    for done in sorted(args.directory.glob("*/DONE")):
+    run_dirs = sorted(path for path in args.directory.iterdir()
+                      if path.is_dir() and path.name != "_failed")
+    for done in (run / "DONE" for run in run_dirs if (run / "DONE").is_file()):
         run = done.parent
         if (run / "FAILED").exists():
-            if not args.preserve_runs:
+            if args.mark_invalid_runs:
                 done.unlink()
             continue
         try:
             rows.append(parse_run(run))
         except (OSError, ValueError, KeyError, TypeError, InvalidOperation) as error:
             print(f"WARNING: {run.name}: {error}", file=sys.stderr)
-            if not args.preserve_runs:
+            if args.mark_invalid_runs:
                 done.unlink()
                 (run / "FAILED").write_text(f"parsing failed: {error}\n")
             errors += 1
@@ -218,7 +224,8 @@ def main():
         writer.writeheader()
         writer.writerows(rows)
     temporary.replace(args.directory / "summary.csv")
-    failures = [f"{p.parent.name}: {p.read_text().strip()}" for p in sorted(args.directory.glob("*/FAILED"))]
+    failures = [f"{run.name}: {(run / 'FAILED').read_text().strip()}"
+                for run in run_dirs if (run / "FAILED").is_file()]
     (args.directory / "failed.txt").write_text("\n".join(failures) + ("\n" if failures else ""))
     print(f"Wrote {args.directory / 'summary.csv'} ({len(rows)} rows)")
     return int(bool(errors))

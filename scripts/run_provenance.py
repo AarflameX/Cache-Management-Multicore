@@ -1,4 +1,5 @@
 """Generate run metadata and validate existing run directories before dispatch."""
+from datetime import datetime, timezone
 import hashlib
 import json
 import os
@@ -29,9 +30,33 @@ def gem5_commit(binary):
     raise ValueError("cannot locate gem5 source checkout; set GEM5_ROOT")
 
 
-def check_existing(run, expected):
+def retryable(run):
+    return (not run.is_symlink() and run.is_dir()
+            and ((run / "FAILED").exists()
+                 or not all((run / file).is_file() for file in ("DONE", "stats.txt", "run.json"))))
+
+
+def archive_failed(run):
+    if not retryable(run):
+        raise ValueError(f"{run}: no longer eligible for --retry-failed")
+    archive = run.parent / "_failed"
+    if archive.is_symlink():
+        raise ValueError(f"{archive}: refusing symlink archive")
+    archive.mkdir(exist_ok=True)
+    while True:
+        timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S.%fZ")
+        destination = archive / f"{run.name}.{timestamp}"
+        if not destination.exists() and not destination.is_symlink():
+            break
+    run.rename(destination)
+    print(f"ARCHIVE {run} -> {destination}", flush=True)
+
+
+def check_existing(run, expected, retry_failed=False):
     if not run.exists() and not run.is_symlink():
         return
+    if retry_failed and retryable(run):
+        return True
     try:
         if (run.is_symlink() or not (run / "DONE").is_file()
                 or not (run / "stats.txt").is_file() or (run / "FAILED").exists()):
@@ -47,7 +72,7 @@ def check_existing(run, expected):
         raise ValueError(f"{run}: {error}; use a new --variant") from error
 
 
-def preflight(repo, base, state, gem5, conf, runner, seed, extra, tasks):
+def preflight(repo, base, state, gem5, conf, runner, seed, extra, tasks, retry="0"):
     repo, base, state, gem5, conf = map(Path, (repo, base, state, gem5, conf))
 
     def git(*args):
@@ -63,6 +88,7 @@ def preflight(repo, base, state, gem5, conf, runner, seed, extra, tasks):
     items = Path(tasks).read_bytes().decode().split("\0")[:-1]
     hashes = {}
     names = set()
+    retries = []
     for suite, bench, args, roi, _, core in zip(*(iter(items),) * 6, strict=True):
         name = f"{suite}_{bench}_c{core}"
         if name in names:
@@ -74,8 +100,13 @@ def preflight(repo, base, state, gem5, conf, runner, seed, extra, tasks):
         meta = dict(common, suite=suite, benchmark=bench, cores=int(core), variant=base.name,
                     roi=int(roi), args=args.replace("{cores}", core).replace("{repo}", str(repo)),
                     benchmark_sha256=hashes[binary])
-        check_existing(base / name, meta)
+        run = base / name
+        if check_existing(run, meta, retry_failed=retry == "1"):
+            retries.append(run)
         (state / f"{name}.json").write_text(json.dumps(meta))
+    # Finish validating the sweep before moving any prior attempts.
+    for run in retries:
+        archive_failed(run)
 
 
 if __name__ == "__main__":

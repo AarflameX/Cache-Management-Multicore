@@ -180,6 +180,7 @@ conf="$repo/experiments.conf"
 filter='.*'
 results=results
 dry=0
+retry_failed=0
 seed=5489
 runner=$(hostname)
 while (( $# )); do
@@ -193,11 +194,12 @@ while (( $# )); do
                 --seed) seed=$2 ;; --runner) runner=$2 ;;
             esac
             shift 2 ;;
+        --retry-failed) retry_failed=1; shift ;;
         --dry-run) dry=1; shift ;;
         -h|--help)
             echo 'Usage: ./run_experiment.sh [--cores "2 4 8"] [--variant NAME]'
             echo '  [--extra-args "..."] [--gem5-bin PATH] [--jobs N] [--conf FILE]'
-            echo '  [--filter REGEX] [--dry-run] [--results DIR] [--seed N] [--runner NAME]'
+            echo '  [--filter REGEX] [--dry-run] [--results DIR] [--seed N] [--runner NAME] [--retry-failed]'
             exit 0 ;;
         *) die "unknown option: $1" ;;
     esac
@@ -244,6 +246,9 @@ seed=$(python3 -c 'import sys; n = int(sys.argv[1]); sys.exit(1) if not 0 <= n <
 gem5=$(realpath -m -- "$gem5")
 base="$(realpath -m -- "$results")/$variant"
 if (( dry )); then
+    if (( retry_failed )); then
+        echo '# --retry-failed: incomplete or FAILED run directories would move to _failed/ before dispatch'
+    fi
     for (( i=0; i<${#records[@]}; i+=5 )); do
         for core in "${core_list[@]}"; do
             suite=${records[i]} benchmark=${records[i+1]}
@@ -314,7 +319,7 @@ for (( i=0; i<${#records[@]}; i+=5 )); do
     done
 done > "$state/tasks"
 python3 "$repo/scripts/run_provenance.py" "$repo" "$base" "$state" "$gem5" \
-    "$conf" "$runner" "$seed" "$extra" "$state/tasks"
+    "$conf" "$runner" "$seed" "$extra" "$state/tasks" "$retry_failed"
 xargs -0 -r -n 6 -P "$jobs" "$self" --worker < "$state/tasks" &
 dispatcher=$!
 result=0

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Compare gem5 binary, seed, and simulator config across runs in a variant."""
+"""Check provenance and baseline-v2 coverage in raw runs or exported JSONs."""
 import argparse
 from collections import defaultdict
 import json
@@ -9,50 +9,84 @@ import sys
 
 from run_provenance import VARIANT_FIELDS
 
+V2_BENCHMARKS = {
+    "gap": ("bfs", "pr"),
+    "splash4": ("BARNES", "FFT", "LU-NOCONT", "OCEAN-CONT", "OCEAN-NOCONT", "RADIX"),
+}
 
-def check_variant(directory):
-    groups = {field: defaultdict(list) for field in VARIANT_FIELDS}
-    runs = sorted(p for p in directory.iterdir() if p.is_dir() and not p.name.startswith("."))
-    if not runs:
-        print(f"{directory}: no run directories")
-        return False
-    valid = True
-    for run in runs:
+
+def check_variant(directory, cores=(4,)):
+    groups = defaultdict(lambda: defaultdict(list))
+    exports = sorted(path for path in directory.glob("*.json") if path.is_file())
+    if exports:
+        sources = [(path, path, True) for path in exports]
+    else:
+        sources = [(run, run / "run.json",
+                    (run / "DONE").is_file() and (run / "stats.txt").is_file()
+                    and not (run / "FAILED").exists())
+                   for run in sorted(directory.iterdir())
+                   if run.is_dir() and not run.name.startswith(".") and run.name != "_failed"]
+    valid = bool(sources)
+    present = set()
+    for entry, source, finished in sources:
+        label = f"{entry.name} (runner unknown)"
         try:
-            meta = json.loads((run / "run.json").read_text())
+            meta = json.loads(source.read_text())
+            if exports:
+                meta = meta["run"]
             if not isinstance(meta, dict):
-                raise ValueError("run.json must contain an object")
-        except (OSError, ValueError) as error:
-            print(f"{run.name}: {error}")
+                raise ValueError("run metadata must be an object")
+            label = f"{entry.name} (runner {meta.get('runner') or 'unknown'})"
+            suite, benchmark, count = (meta[key] for key in ("suite", "benchmark", "cores"))
+            if (not isinstance(suite, str) or not isinstance(benchmark, str)
+                    or type(count) is not int or count <= 0):
+                raise ValueError("invalid suite, benchmark, or core count")
+            if finished:
+                present.add((suite, benchmark, count))
+        except (OSError, ValueError, KeyError, TypeError) as error:
+            print(f"{label}: {error}")
             valid = False
             continue
-        for field in VARIANT_FIELDS:
+        for field in (*VARIANT_FIELDS, "benchmark_sha256"):
             value = meta.get(field)
             usable = (type(value) is int and 0 <= value < 2**32 if field == "seed"
                       else isinstance(value, str) and re.fullmatch(r"[0-9a-f]{64}", value))
             if not usable:
-                print(f"{run.name}: missing or invalid {field}")
+                print(f"{label}: missing or invalid {field}")
                 valid = False
-            else:
-                groups[field][value].append(run.name)
-    for field, values in groups.items():
+                continue
+            group = f"{field} for {suite}/{benchmark}" if field == "benchmark_sha256" else field
+            groups[group][value].append(label)
+    for field, values in sorted(groups.items()):
         if len(values) > 1:
             valid = False
             print(f"{field} differs:")
             for value, names in sorted(values.items(), key=lambda entry: (-len(entry[1]), entry[0])):
                 print(f"  {value}: {', '.join(names)}")
-    print(f"{directory}: {'consistent' if valid else 'inconsistent'} ({len(runs)} runs)")
+    print(f"{directory}: {'consistent' if valid else 'inconsistent'} ({len(sources)} runs)")
+    expected = {(suite, benchmark, count) for suite, benchmarks in V2_BENCHMARKS.items()
+                for benchmark in benchmarks for count in cores}
+    missing = sorted(expected - present)
+    print(f"Baseline-v2 coverage: {len(expected) - len(missing)}/{len(expected)}")
+    for suite, benchmark, count in missing:
+        print(f"  Missing: {suite}_{benchmark}_c{count}")
     return valid
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("variant")
+    parser.add_argument("variant", help="variant name or path to a raw or exported variant directory")
     parser.add_argument("--results", type=Path, default=Path("results"))
+    parser.add_argument("--cores", type=int, nargs="+", default=[4],
+                        help="expected core counts for the coverage report (default: 4)")
     args = parser.parse_args()
-    if not re.fullmatch(r"[A-Za-z0-9_][A-Za-z0-9_.+-]*", args.variant):
-        parser.error("invalid variant name")
+    if any(core <= 0 or core % 2 for core in args.cores):
+        parser.error("core counts must be positive even integers")
+    if re.fullmatch(r"[A-Za-z0-9_][A-Za-z0-9_.+-]*", args.variant):
+        directory = args.results / args.variant
+    else:
+        directory = Path(args.variant)
     try:
-        sys.exit(0 if check_variant(args.results / args.variant) else 1)
+        sys.exit(0 if check_variant(directory, args.cores) else 1)
     except OSError as error:
         sys.exit(f"ERROR: {error}")
