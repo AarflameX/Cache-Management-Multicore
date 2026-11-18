@@ -16,7 +16,7 @@ from parse_stats import parse_run
 
 
 PROVENANCE_FIELDS = ("gem5_sha256", "benchmark_sha256", "seed", "config_sha256",
-                     "args", "extra_args", "roi")
+                     "args", "extra_args", "roi", "guest")
 
 
 def needs_write(target, payload, metadata, force):

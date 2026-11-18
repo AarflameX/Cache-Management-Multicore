@@ -8,9 +8,14 @@ import re
 import subprocess
 import sys
 
+if __package__:
+    from .staged_workload import experiment_layout, resolve_args
+else:
+    from staged_workload import experiment_layout, resolve_args
+
 VARIANT_FIELDS = ("gem5_sha256", "seed", "config_sha256")
 GUARD_FIELDS = (*VARIANT_FIELDS, "benchmark_sha256", "args", "extra_args", "roi",
-                "suite", "benchmark", "cores", "variant")
+                "suite", "benchmark", "cores", "variant", "guest")
 
 
 def sha256(path):
@@ -111,9 +116,10 @@ def preflight(repo, base, state, gem5, conf, runner, seed, extra, tasks, retry="
         if binary not in hashes:
             hashes[binary] = sha256(binary)
         meta = dict(common, suite=suite, benchmark=bench, cores=int(core), variant=base.name,
-                    roi=int(roi), args=args.replace("{cores}", core).replace("{repo}", str(repo)),
+                    roi=int(roi), args=resolve_args(args.replace("{cores}", core), repo),
                     benchmark_sha256=hashes[binary])
         run = base / name
+        meta["guest"] = experiment_layout(suite, bench, core, meta["args"], run)
         if check_existing(run, meta, retry_failed=retry == "1"):
             retries.append(run)
         (state / f"{name}.json").write_text(json.dumps(meta))

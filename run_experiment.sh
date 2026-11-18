@@ -3,7 +3,7 @@ set -euo pipefail
 repo=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 self="$repo/run_experiment.sh"
 
-# run_benchmark.sh execs GEM5_BIN. This adapter inserts gem5's private outdir
+# The staged workload launcher invokes GEM5_BIN. This adapter inserts gem5's private outdir
 # and config flags before --args, preserving the existing workload environment.
 if [[ ${EXPERIMENT_GEM5_ADAPTER:-0} == 1 ]]; then
     exec python3 - "$@" <<'PY'
@@ -236,8 +236,9 @@ python3 - "$extra" <<'PYEXTRA' || die 'invalid --extra-args (use --seed separate
 import shlex
 import sys
 
-reserved = ("--arg", "--args", "--s", "--se", "--see", "--seed")
-if any(arg.split("=", 1)[0] in reserved for arg in shlex.split(sys.argv[1])):
+reserved = ("--args", "--seed", "--binary", "--cores", "--input", "--env-json", "--literal-args")
+options = (arg.partition("=")[0] for arg in shlex.split(sys.argv[1]) if arg.startswith("--"))
+if any(flag.startswith(option) for option in options for flag in reserved):
     sys.exit(1)
 PYEXTRA
 seed=$(python3 -c 'import sys; n = int(sys.argv[1]); sys.exit(1) if not 0 <= n < 2**32 else print(n)' "$seed" 2>/dev/null) ||
@@ -254,10 +255,12 @@ if (( dry )); then
             suite=${records[i]} benchmark=${records[i+1]}
             out="$base/${suite}_${benchmark}_c$core"
             args=${records[i+2]//\{cores\}/$core}
-            args=${args//\{repo\}/$repo}
             python3 - "$out" "${records[i+4]}" "$gem5" "$repo" "$suite" "$benchmark" "$core" "${records[i+3]}" "$args" "$extra" "$seed" <<'PYDRY'
-import shlex, sys
+import json, pathlib, shlex, sys
 out, limit, gem5, repo, suite, bench, core, roi, args, extra, seed = sys.argv[1:]
+sys.path.insert(0, repo + '/scripts')
+from staged_workload import experiment_layout, resolve_args
+args = resolve_args(args, repo)
 tokens = shlex.split(args)
 command = [repo + '/run_benchmark.sh', '--suite', suite, '--benchmark', bench, '--cores', core]
 if roi == '1':
@@ -270,7 +273,8 @@ command += ['--args', *tokens]
 env = ['env', 'EXPERIMENT_GEM5_ADAPTER=1', 'EXPERIMENT_OUT=' + out,
        'EXPERIMENT_GEM5=' + gem5, 'EXPERIMENT_EXTRA=' + extra, 'EXPERIMENT_SEED=' + seed,
        'GEM5_BIN=' + repo + '/run_experiment.sh']
-print(f'# outdir={out}; timeout={limit}s; stage private input/data files here')
+print('# guest ' + json.dumps(experiment_layout(suite, bench, core, args, pathlib.Path(out))))
+print(f'# outdir={out}; timeout={limit}s')
 print('(cd ' + shlex.quote(out) + ' && ' + shlex.join(env + ['setsid'] + command) + ')')
 PYDRY
         done

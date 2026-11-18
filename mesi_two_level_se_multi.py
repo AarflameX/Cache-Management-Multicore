@@ -11,6 +11,7 @@ Usage:
 
 
 import argparse
+import json
 import shlex
 from _m5 import core as gem5_core
 from gem5.utils.requires import requires
@@ -34,9 +35,11 @@ parser.add_argument("--cores", type=int, default=2)
 parser.add_argument("--mem-size", default="4GiB", help="simulated physical memory capacity (default: 4GiB)")
 parser.add_argument("--input", help="file to use as benchmark stdin")
 parser.add_argument("--seed", type=int, default=5489)
+parser.add_argument("--env-json", type=json.loads)
+parser.add_argument("--literal-args", action="store_true")
 parser.add_argument("--args", nargs=argparse.REMAINDER, default=[])
 parsed = parser.parse_args()
-if len(parsed.args) == 1:
+if not parsed.literal_args and len(parsed.args) == 1:
     try:
         parsed.args = shlex.split(parsed.args[0])
     except ValueError as error:
@@ -73,7 +76,7 @@ board.set_se_binary_workload(
     stdin_file=FileResource(local_path=parsed.input) if parsed.input else None,
     # Park OpenMP workers promptly so exit_group does not halt a spinning CPU
     # while it has a pending memory operation in TimingSimpleCPU.
-    env_list=[
+    env_list=parsed.env_json if parsed.env_json is not None else [
         f"OMP_NUM_THREADS={parsed.cores}",
         "OMP_WAIT_POLICY=PASSIVE",
         "GOMP_SPINCOUNT=1",

@@ -59,11 +59,7 @@ binary="${repo_root}/benchmarks/${suite}/${binary_dir}/${benchmark}"
 GEM5_BIN="${GEM5_BIN:-$HOME/gem5/build/X86/gem5.opt}"
 [[ -f "$binary" && -x "$binary" ]] || die "benchmark not found or not executable: $binary; run benchmarks/${suite}/build.sh first"
 [[ -f "$GEM5_BIN" && -x "$GEM5_BIN" ]] || die "gem5 not found or not executable: $GEM5_BIN; set GEM5_BIN to your gem5 executable"
-input_options=()
 if [[ -n "$input_file" ]]; then
     [[ -f "$input_file" && -r "$input_file" ]] || die "input file not readable: $input_file"
-    input_file="$(cd -- "$(dirname -- "$input_file")" && pwd)/$(basename -- "$input_file")"
-    input_options=(--input "$input_file")
 fi
-exec "$GEM5_BIN" "${repo_root}/mesi_two_level_se_multi.py" \
-    --binary "$binary" --cores "$cores" "${input_options[@]}" --args "${benchmark_args[@]}"
+exec python3 "$repo_root/scripts/staged_workload.py" "$repo_root" "$GEM5_BIN" "$suite" "$benchmark" "$cores" "$binary" "$input_file" "${benchmark_args[@]}"
