@@ -38,6 +38,17 @@ FIELDS = ["suite", "benchmark", "cores", "variant", "simSeconds",
           "L1D_prefetch_hits", "L1D_prefetch_misses", "wall_seconds"]
 FIELDS += [f"core{i}_L1D_{field}" for i in range(8)
            for field in ("accesses", "miss_rate")]
+# Ruby emits these controller events as vectors, one entry per L1 controller.
+COHERENCE_EVENTS = {
+    "L1_invalidations": ("Inv",),
+    "L1_upgrades": ("S.Store",),
+    "L1_fwd_requests": ("Fwd_GETS", "Fwd_GETX"),
+}
+L1_OUTGOING_BUFFERS = ("requestFromL1Cache", "responseFromL1Cache", "unblockFromL1Cache")
+COHERENCE_FIELDS = [*COHERENCE_EVENTS, "L1_outgoing_msgs"]
+COHERENCE_VECTOR_NAMES = {PREFIX + "L1Cache_Controller." + event
+                          for events in COHERENCE_EVENTS.values() for event in events}
+FIELDS += [name for field in COHERENCE_FIELDS for name in (field, field + "_per_kinst")]
 
 
 def parse_run(run):
@@ -56,7 +67,12 @@ def parse_run(run):
         elif current is not None:
             parts = line.split()
             if len(parts) >= 2 and not parts[0].startswith("#"):
-                current[parts[0]] = parts[1]
+                if parts[0] in COHERENCE_VECTOR_NAMES:
+                    # Each pipe-delimited cell is count, percentage, cumulative percentage.
+                    current[parts[0]] = tuple(cell.split()[0] if cell.split() else ""
+                                              for cell in line.split("|")[1:])
+                else:
+                    current[parts[0]] = parts[1]
     if current is not None:
         raise ValueError("incomplete statistics block")
     roi_enabled = meta.get("roi", 1)
@@ -139,6 +155,31 @@ def parse_run(run):
                     f"{label}_miss_rate": misses / (hits + misses) if hits + misses else 0})
         row[f"{label}_MPKI"] = (1000 * misses / row["instructions"]
                                  if row["instructions"] else "")
+    for field in COHERENCE_FIELDS:
+        if field in COHERENCE_EVENTS:
+            names = [PREFIX + "L1Cache_Controller." + event for event in COHERENCE_EVENTS[field]]
+            if all(name in block for name in names for block in blocks[:roi]):
+                value = 0
+                for block in blocks[:roi]:
+                    for name in names:
+                        counts = block[name]
+                        if len(counts) != cores:
+                            raise ValueError(f"{name}: expected {cores} per-core counts, found {len(counts)}")
+                        for count in counts:
+                            number = Decimal(count)
+                            if not number.is_finite() or number < 0 or number != number.to_integral_value():
+                                raise ValueError(f"invalid stat {name}: {count}")
+                            value += int(number)
+            else:
+                value = ""
+        else:
+            names = [f"{PREFIX}l1_controllers{core}.{buffer}.m_msg_count"
+                     for core in range(cores) for buffer in L1_OUTGOING_BUFFERS]
+            value = (sum(total(name, True) for name in names)
+                     if all(name in block for name in names for block in blocks[:roi]) else "")
+        row[field] = value
+        row[field + "_per_kinst"] = (1000 * value / row["instructions"]
+                                      if value != "" and row["instructions"] else "")
     return row
 
 

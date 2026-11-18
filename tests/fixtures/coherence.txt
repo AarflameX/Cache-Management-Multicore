@@ -1,0 +1,14 @@
+# Small Ruby stats snippet using names and vector formatting observed in OCEAN-CONT.
+board.cache_hierarchy.ruby_system.L1Cache_Controller.Inv | 2 40.00% 40.00% | 3 60.00% 100.00%
+board.cache_hierarchy.ruby_system.L1Cache_Controller.Inv::total 5
+board.cache_hierarchy.ruby_system.L1Cache_Controller.S.Store | 1 25.00% 25.00% | 3 75.00% 100.00%
+board.cache_hierarchy.ruby_system.L1Cache_Controller.Fwd_GETS | 4 40.00% 40.00% | 6 60.00% 100.00%
+board.cache_hierarchy.ruby_system.L1Cache_Controller.Fwd_GETX | 2 40.00% 40.00% | 3 60.00% 100.00%
+board.cache_hierarchy.ruby_system.l1_controllers0.requestFromL1Cache.m_msg_count 10
+board.cache_hierarchy.ruby_system.l1_controllers0.responseFromL1Cache.m_msg_count 20
+board.cache_hierarchy.ruby_system.l1_controllers0.unblockFromL1Cache.m_msg_count 30
+board.cache_hierarchy.ruby_system.l1_controllers1.requestFromL1Cache.m_msg_count 40
+board.cache_hierarchy.ruby_system.l1_controllers1.responseFromL1Cache.m_msg_count 50
+board.cache_hierarchy.ruby_system.l1_controllers1.unblockFromL1Cache.m_msg_count 60
+board.cache_hierarchy.ruby_system.l1_controllers0.mandatoryQueue.m_msg_count 99999
+board.cache_hierarchy.ruby_system.l1_controllers0.responseToL1Cache.m_msg_count 99999

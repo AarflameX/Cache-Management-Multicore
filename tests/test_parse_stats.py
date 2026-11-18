@@ -8,7 +8,7 @@ import sys
 import tempfile
 import unittest
 
-from parse_stats import parse_run
+from parse_stats import COHERENCE_FIELDS, parse_run
 
 PREFIX = 'board.cache_hierarchy.ruby_system.'
 
@@ -27,6 +27,26 @@ def block(cores=2, banks=(0, 1), multiplier=1, zero_core=None, prefetch=True):
         base = f'{PREFIX}l2_controllers{bank}.L2cache'
         values[f'{base}.m_demand_hits'] = 20 * (bank + 1) * multiplier
         values[f'{base}.m_demand_misses'] = 5 * (bank + 1) * multiplier
+    return values
+
+
+def coherence_block(multiplier=1, cores=2):
+    values = block(cores=cores, multiplier=multiplier)
+    snippet = Path(__file__).with_name('fixtures') / 'coherence.txt'
+    for line in snippet.read_text().splitlines():
+        if not line or line.startswith('#'):
+            continue
+        name, value = line.split(None, 1)
+        if '|' in value:
+            counts = [int(cell.split()[0]) for cell in value.split('|')[1:]]
+            counts = (counts * 4)[:cores]
+            value = '| ' + ' | '.join(f'{count * multiplier} 0.00% 0.00%' for count in counts)
+        else:
+            value = int(value) * multiplier
+        values[name] = value
+    for core in range(2, cores):
+        for buffer in ('requestFromL1Cache', 'responseFromL1Cache', 'unblockFromL1Cache'):
+            values[f'{PREFIX}l1_controllers{core}.{buffer}.m_msg_count'] = 10 * multiplier
     return values
 
 
@@ -160,6 +180,65 @@ class ParseStatsTests(unittest.TestCase):
                 self.assertEqual(self.fixture([block(), block()], roi=roi)['L1D_accesses'], 300)
         with self.assertRaisesRegex(ValueError, 'roi must be a bool or integer'):
             self.fixture([block(), block()], roi='1')
+
+    def test_coherence_first_roi_and_normalization(self):
+        exit_block = coherence_block(99)
+        exit_block[f'{PREFIX}L1Cache_Controller.Inv'] = '| malformed |'
+        row = self.fixture([coherence_block(), exit_block])
+        for field, expected in zip(COHERENCE_FIELDS, (5, 4, 15, 210)):
+            self.assertEqual(row[field], expected)
+            self.assertAlmostEqual(row[field + '_per_kinst'], expected / 3)
+
+    def test_coherence_three_frames_never_exit(self):
+        for benchmark in ('VOLREND', 'VOLREND-NPL'):
+            row = self.fixture([coherence_block(x) for x in (1, 2, 3, 99)], benchmark=benchmark)
+            for field, expected in zip(COHERENCE_FIELDS, (30, 24, 90, 1260)):
+                self.assertEqual(row[field], expected)
+                self.assertAlmostEqual(row[field + '_per_kinst'], expected / 18)
+
+    def test_coherence_missing_components_or_frames_are_blank(self):
+        for name, field in (
+            (f'{PREFIX}L1Cache_Controller.Inv', 'L1_invalidations'),
+            (f'{PREFIX}L1Cache_Controller.Fwd_GETX', 'L1_fwd_requests'),
+            (f'{PREFIX}l1_controllers1.requestFromL1Cache.m_msg_count', 'L1_outgoing_msgs'),
+        ):
+            values = coherence_block()
+            del values[name]
+            row = self.fixture([coherence_block(), values, coherence_block(), coherence_block()], benchmark='VOLREND')
+            self.assertEqual(row[field], '')
+            self.assertEqual(row[field + '_per_kinst'], '')
+        row = self.fixture([block(), coherence_block()])
+        for field in COHERENCE_FIELDS:
+            self.assertEqual(row[field], '')
+            self.assertEqual(row[field + '_per_kinst'], '')
+
+    def test_coherence_eight_cores(self):
+        row = self.fixture([coherence_block(cores=8), block()], cores=8)
+        self.assertEqual(row['L1_invalidations'], 20)
+        self.assertEqual(row['L1_upgrades'], 16)
+        self.assertEqual(row['L1_fwd_requests'], 60)
+        self.assertEqual(row['L1_outgoing_msgs'], 390)
+
+    def test_coherence_zero_counts_and_zero_instructions(self):
+        with contextlib.redirect_stderr(io.StringIO()):
+            row = self.fixture([coherence_block(0), coherence_block()], roi=1)
+        for field in COHERENCE_FIELDS:
+            self.assertEqual(row[field], 0)
+            self.assertEqual(row[field + '_per_kinst'], '')
+        values = coherence_block()
+        for name in values:
+            if name.startswith(f'{PREFIX}L1Cache_Controller.'):
+                values[name] = '| 0 0% 0% | 0 0% 0%' if '::' not in name else 0
+        row = self.fixture([values, block()])
+        self.assertEqual(row['L1_invalidations_per_kinst'], 0)
+
+    def test_coherence_invalid_vector_counts(self):
+        for value in ('| 1 0% 0%', '| -1 0% 0% | 2 0% 0%',
+                      '| nan 0% 0% | 2 0% 0%', '| 1.5 0% 0% | 2 0% 0%'):
+            values = coherence_block()
+            values[f'{PREFIX}L1Cache_Controller.Inv'] = value
+            with self.assertRaises(ValueError):
+                self.fixture([values, block()])
 
 
 if __name__ == '__main__':
