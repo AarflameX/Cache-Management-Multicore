@@ -7,20 +7,35 @@ from pathlib import Path
 import re
 import sys
 
-from run_provenance import VARIANT_FIELDS
+from run_provenance import TREE_FIELDS, VARIANT_FIELDS
 
-EXPORT_BUILD_FIELDS = ("gem5_commit", "gem5_isa", "gem5_protocol")
-HASH_FIELDS = ("gem5_sha256", "config_sha256", "benchmark_sha256")
-
+TREE_HASH, _ = TREE_FIELDS
+HASH_FIELDS = ("gem5_sha256", "config_sha256", "benchmark_sha256", TREE_HASH)
+REQUIRED_OPTIONS = ("USE_X86_ISA", "RUBY_PROTOCOL_MESI_Two_Level")
 V2_BENCHMARKS = {
     "gap": ("bfs", "pr"),
     "splash4": ("BARNES", "FFT", "LU-NOCONT", "OCEAN-CONT", "OCEAN-NOCONT", "RADIX"),
 }
 
 
+def report_build_differences(runner_options):
+    if len(runner_options) < 2:
+        return
+    keys = {key for records in runner_options.values() for options in records for key in options}
+    for key in sorted(keys):
+        values = {runner: {options.get(key) for options in records}
+                  for runner, records in runner_options.items()}
+        if len({frozenset(options) for options in values.values()}) > 1:
+            print(f"INFO: build option {key} differs:")
+            for runner, options in sorted(values.items()):
+                display = sorted("<missing>" if value is None else value for value in options)
+                print(f"  {runner}: {', '.join(display)}")
+
+
 def check_variant(directory, cores=(4,)):
     groups = defaultdict(lambda: defaultdict(list))
     runner_hashes = defaultdict(set)
+    runner_options = defaultdict(list)
     exports = sorted(path for path in directory.glob("*.json") if path.is_file())
     if exports:
         sources = [(path, path, True) for path in exports]
@@ -56,15 +71,27 @@ def check_variant(directory, cores=(4,)):
             continue
         fields = (*VARIANT_FIELDS, "benchmark_sha256")
         if exports:
-            fields += (*EXPORT_BUILD_FIELDS, "args", "extra_args")
+            commit = meta.get("gem5_git_commit", meta.get("gem5_commit"))
+            groups["gem5_git_commit"][str(commit) if commit is not None else "null"].append(label)
+            options = meta.get("gem5_build_options")
+            if not isinstance(options, dict) or not all(isinstance(v, str) for v in options.values()):
+                options = {}
+            runner_options[runner].append(options)
+            for option in REQUIRED_OPTIONS:
+                if options.get(option) != "True":
+                    print(f"{label}: expected {option} = True (found {options.get(option, 'missing')})")
+                    valid = False
+            fields += ("args", "extra_args")
+            if TREE_HASH in meta:
+                fields += (TREE_HASH,)
+            else:
+                print(f"INFO: {label}: missing {TREE_HASH}")
         for field in fields:
             value = meta.get(field)
             if field in HASH_FIELDS:
                 usable = isinstance(value, str) and re.fullmatch(r"[0-9a-f]{64}", value)
             elif field == "seed":
                 usable = type(value) is int and 0 <= value < 2**32
-            elif field == "gem5_commit":
-                usable = isinstance(value, str) and re.fullmatch(r"[0-9a-f]{40}", value)
             else:
                 usable = isinstance(value, str) and (field in ("args", "extra_args") or value.strip())
             if not usable:
@@ -84,14 +111,16 @@ def check_variant(directory, cores=(4,)):
                 runner_hashes[runner].add(value)
     for field, values in sorted(groups.items()):
         if len(values) > 1:
-            informational = (bool(exports) and field == "gem5_sha256"
-                             and all(len(hashes) == 1 for hashes in runner_hashes.values()))
+            informational = (field == "gem5_git_commit"
+                             or (bool(exports) and field == "gem5_sha256"
+                                 and all(len(hashes) == 1 for hashes in runner_hashes.values())))
             if not informational:
                 valid = False
             prefix = "INFO: " if informational else ""
             print(f"{prefix}{field} differs:")
             for value, names in sorted(values.items(), key=lambda entry: (-len(entry[1]), entry[0])):
                 print(f"  {value}: {', '.join(names)}")
+    report_build_differences(runner_options)
     print(f"{directory}: {'consistent' if valid else 'inconsistent'} ({len(sources)} runs)")
     expected = {(suite, benchmark, count) for suite, benchmarks in V2_BENCHMARKS.items()
                 for benchmark in benchmarks for count in cores}

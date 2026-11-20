@@ -13,9 +13,10 @@ from tempfile import NamedTemporaryFile
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from parse_stats import parse_run
+from scripts.run_provenance import TREE_FIELDS
 
 
-PROVENANCE_FIELDS = ("gem5_sha256", "benchmark_sha256", "seed", "config_sha256",
+PROVENANCE_FIELDS = ("gem5_sha256", *TREE_FIELDS, "benchmark_sha256", "seed", "config_sha256",
                      "args", "extra_args", "roi", "guest")
 
 

@@ -14,7 +14,8 @@ else:
     from staged_workload import experiment_layout, resolve_args
 
 VARIANT_FIELDS = ("gem5_sha256", "seed", "config_sha256")
-GUARD_FIELDS = (*VARIANT_FIELDS, "benchmark_sha256", "args", "extra_args", "roi",
+TREE_FIELDS = ("gem5_source_tree_sha256", "gem5_source_file_count")
+GUARD_FIELDS = (*VARIANT_FIELDS, *TREE_FIELDS, "benchmark_sha256", "args", "extra_args", "roi",
                 "suite", "benchmark", "cores", "variant", "guest")
 
 
@@ -26,25 +27,48 @@ def sha256(path):
     return digest.hexdigest()
 
 
-def gem5_commit(binary):
+def gem5_source_root(binary):
     source = os.environ.get("GEM5_ROOT")
-    candidates = [Path(source)] if source else binary.resolve().parents
-    for root in candidates:
-        if (root / "src/python/pybind11/core.cc").is_file() and (root / ".git").exists():
-            return subprocess.check_output(["git", "-C", str(root), "rev-parse", "HEAD"],
-                                           text=True).strip()
-    raise ValueError("cannot locate gem5 source checkout; set GEM5_ROOT")
+    if source is not None:
+        return Path(source)
+    for path in binary.resolve().parents:
+        if (path / "SConstruct").is_file() or (path / "src/python/pybind11/core.cc").is_file():
+            return path
+    raise ValueError("cannot locate gem5 source tree; set GEM5_ROOT")
+
+
+def gem5_commit(root):
+    if not (root / ".git").exists():
+        return None
+    try:
+        git = ["git", "-C", str(root)]
+        head = subprocess.check_output(git + ["rev-parse", "--show-prefix", "--verify", "HEAD"],
+                                       text=True, stderr=subprocess.DEVNULL)
+        match = re.fullmatch(r"\n([0-9a-f]{40}|[0-9a-f]{64})\n", head)
+        if match and subprocess.check_output(git + ["cat-file", "-t", match[1]],
+                                             text=True, stderr=subprocess.DEVNULL) == "commit\n":
+            return match[1]
+    except (OSError, subprocess.CalledProcessError):
+        pass
+    return None
+
+
+def gem5_source_provenance(root):
+    script = Path(__file__).resolve().with_name("tree_hash.sh")
+    summary = subprocess.check_output([str(script), str(root)], text=True)
+    tree, count = (line.split()[1] for line in summary.splitlines())
+    return dict(zip(TREE_FIELDS, (tree, int(count)), strict=True))
 
 
 def gem5_build_info(binary):
     output = subprocess.check_output([str(binary), "--build-info"], text=True)
-    options = dict(re.findall(r"^ +([A-Za-z0-9_]+) = (.*)$", output, re.MULTILINE))
+    options = dict(re.findall(r"^[ \t]+([A-Za-z0-9_]+) = ([^\n]*)$", output, re.MULTILINE))
+    if not options:
+        raise ValueError(f"{binary}: --build-info lacks build options")
     isas = sorted(match[1] for option, value in options.items()
                   if value == "True" and (match := re.fullmatch(r"USE_(.+)_ISA", option)))
-    protocol = options.get("PROTOCOL", "").strip()
-    if not isas or not protocol:
-        raise ValueError(f"{binary}: --build-info lacks enabled ISAs or PROTOCOL")
-    return {"gem5_isa": ",".join(isas), "gem5_protocol": protocol}
+    return {"gem5_isa": ",".join(isas), "gem5_protocol": options.get("PROTOCOL"),
+            "gem5_build_options": options}
 
 
 def retryable(run):
@@ -69,7 +93,7 @@ def archive_failed(run):
     print(f"ARCHIVE {run} -> {destination}", flush=True)
 
 
-def check_existing(run, expected, retry_failed=False):
+def check_existing(run, expected, retry_failed=False, *, fields=GUARD_FIELDS, warn=True):
     if not run.exists() and not run.is_symlink():
         return
     if retry_failed and retryable(run):
@@ -81,28 +105,34 @@ def check_existing(run, expected, retry_failed=False):
         actual = json.loads((run / "run.json").read_text())
         if not isinstance(actual, dict):
             raise ValueError("run.json must contain an object")
-        mismatches = [field for field in GUARD_FIELDS
-                      if field not in actual or actual[field] != expected[field]]
+        missing_tree_fields = [field for field in TREE_FIELDS
+                               if field in fields and field not in actual]
+        mismatches = [field for field in fields if field not in missing_tree_fields
+                      and (field not in actual or actual[field] != expected[field])]
         if mismatches:
             raise ValueError("missing or different fields: " + ", ".join(mismatches))
+        if warn and missing_tree_fields:
+            print(f"WARNING: {run}: missing {', '.join(missing_tree_fields)}", file=sys.stderr)
     except (OSError, ValueError) as error:
         raise ValueError(f"{run}: {error}; use a new --variant") from error
 
 
 def preflight(repo, base, state, gem5, conf, runner, seed, extra, tasks, retry="0"):
     repo, base, state, gem5, conf = map(Path, (repo, base, state, gem5, conf))
+    source = gem5_source_root(gem5)
+    source_provenance = gem5_source_provenance(source)
 
     def git(*args):
         return subprocess.check_output(["git", "-C", str(repo), *args], text=True).strip()
 
-    common = dict(gem5_bin=str(gem5), gem5_commit=gem5_commit(gem5),
+    common = dict(gem5_bin=str(gem5), gem5_git_commit=gem5_commit(source),
                   gem5_sha256=sha256(gem5),
                   config_sha256=sha256(repo / "mesi_two_level_se_multi.py"),
                   experiments_conf_sha256=sha256(conf), seed=int(seed),
                   runner=runner, nproc=int(subprocess.check_output(["nproc"])),
                   kernel=os.uname().release, repo_commit=git("rev-parse", "HEAD"),
                   repo_dirty=bool(git("status", "--porcelain")), repo_root=str(repo),
-                  extra_args=extra, **gem5_build_info(gem5))
+                  extra_args=extra, **source_provenance, **gem5_build_info(gem5))
     items = Path(tasks).read_bytes().decode().split("\0")[:-1]
     hashes = {}
     names = set()
@@ -123,6 +153,11 @@ def preflight(repo, base, state, gem5, conf, runner, seed, extra, tasks, retry="
         if check_existing(run, meta, retry_failed=retry == "1"):
             retries.append(run)
         (state / f"{name}.json").write_text(json.dumps(meta))
+    # A filtered sweep still shares provenance with the variant's completed runs.
+    for run in sorted(base.iterdir()):
+        if (run.name not in names and not run.name.startswith(".") and run.name != "_failed"
+                and run.is_dir() and not run.is_symlink() and not retryable(run)):
+            check_existing(run, common, fields=TREE_FIELDS)
     # Finish validating the sweep before moving any prior attempts.
     for run in retries:
         archive_failed(run)
@@ -131,10 +166,10 @@ def preflight(repo, base, state, gem5, conf, runner, seed, extra, tasks, retry="
 if __name__ == "__main__":
     try:
         if sys.argv[1] == "commit":
-            print(gem5_commit(Path(sys.argv[2])))
+            print(gem5_commit(gem5_source_root(Path(sys.argv[2]))) or "null")
         elif sys.argv[1] == "check":
             run, metadata = map(Path, sys.argv[2:])
-            check_existing(run, json.loads(metadata.read_text()))
+            check_existing(run, json.loads(metadata.read_text()), warn=False)
         else:
             preflight(*sys.argv[1:])
     except (OSError, ValueError, subprocess.CalledProcessError) as error:

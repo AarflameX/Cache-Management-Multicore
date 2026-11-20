@@ -80,10 +80,15 @@ export GEM5_ROOT="$HOME/gem5"
 export GEM5_BIN="$GEM5_ROOT/build/X86/gem5.opt"
 ```
 
+A v25.1.0.1 release tarball is fine if its source tree matches the pinned
+fingerprint below. Never fake a git commit. Set `GEM5_ROOT` to the extracted
+gem5 directory and build there using the same SCons commands.
+
 The Fedora reference `gem5.opt` is dynamically linked, including against
 Fedora's Python shared library. Fedora and Ubuntu builds can have different
-gem5 hashes. Both should report version `25.1.0.1`, protocol
-`MESI_Two_Level`, and `USE_X86_ISA = True` in `--build-info`.
+gem5 executable hashes. Both should report version `25.1.0.1`,
+`USE_X86_ISA = True`, and `RUBY_PROTOCOL_MESI_Two_Level = True` in
+`--build-info`. An ALL build can report `PROTOCOL = MULTIPLE`.
 
 ## Install identical ROI workloads
 
@@ -131,11 +136,19 @@ on the host because their gem5 m5ops are intended for simulation.
 From the experiment repo root, run these checks without launching a simulation:
 
 ```bash
-git -C "$GEM5_ROOT" rev-parse HEAD
+./scripts/tree_hash.sh "$GEM5_ROOT"
 "$GEM5_BIN" --build-info
 sha256sum "$GEM5_BIN"
 python3 -m unittest
 ./scripts/cross_machine_check.sh "$(hostname)" --dry-run
+```
+
+Run `scripts/tree_hash.sh <gem5 dir>` for your source directory and send the
+two lines it prints. The pinned output is:
+
+```text
+tree_sha256 56a03a9961b9f08072b25768637502907977cd537dd614c95e351746e0c10546
+files 7542
 ```
 
 When ready to run verification workloads, use:
@@ -145,7 +158,8 @@ When ready to run verification workloads, use:
 ./scripts/cross_machine_check.sh "$(hostname)"
 ```
 
-The first command runs a two-core BFS smoke test. The second runs BFS
+The first command runs a two-core BFS smoke test with expected
+`simSeconds = 0.000108`. The second runs BFS
 `-g 10 -n 1`, OCEAN-CONT `-n34`, and FFT `-m10` at four cores and seed
 5489, using one job at a time in `results/xcheck-<runner>/`. Compare the
 three printed SHA-256 digests by job ID across machines. The script hashes
@@ -162,8 +176,11 @@ After exporting the real runs, check the merged exports with:
 Gem5 executable hashes can differ across runners in exported-data mode. The
 checker reports those differences as informational and flags multiple hashes
 under a single runner name.
-The check requires the recorded gem5 source commit, enabled ISA set, protocol,
-seed, and simulator config hash to agree across runners. Benchmark hashes
+The check requires matching gem5 source tree hashes, seeds, and simulator
+config hashes across runners. It reports missing tree hashes in older exports,
+commit differences, and build option differences as INFO. Each runner's
+recorded build options must enable X86 and MESI_Two_Level. Extra ISAs and
+protocols are allowed. Benchmark hashes
 are compared per suite and benchmark, and workload args per suite, benchmark,
 and core count when there are multiple records for that job. One record
 per job has no peer args to compare, so use the same agreed conf on every
