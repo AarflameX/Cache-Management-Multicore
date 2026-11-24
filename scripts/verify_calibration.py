@@ -75,6 +75,17 @@ def barnes(output, stdin):
     return particles
 
 
+def barnes_difference(actual, reference, stdin):
+    fields = stdin.read_text().splitlines()
+    dt, softening = float(fields[4]), float(fields[5])
+    if any(a[0] != b[0] for a, b in zip(actual, reference)):
+        raise ValueError("BARNES per-body mass differs from native")
+    # Express the velocity error as a displacement over one integration step.
+    errors = [max(math.dist(a[1::2], b[1::2]), dt * math.dist(a[2::2], b[2::2]))
+              / softening for a, b in zip(actual, reference)]
+    return max(errors), math.sqrt(sum(error**2 for error in errors) / len(errors))
+
+
 def verify(run, gem5, barnes_binary):
     if not (run / "DONE").is_file() or (run / "FAILED").exists():
         raise ValueError("verification requires a completed measurement")
@@ -129,10 +140,10 @@ def verify(run, gem5, barnes_binary):
             result["native_log_sha256"] = sha256(work / "native.log")
         if bench == "BARNES":
             actual, reference = barnes(simulated, stdin), barnes(native, stdin)
-            if any(a[0] != b[0] or any(not math.isclose(x, y, rel_tol=1e-8, abs_tol=1e-10)
-                                      for x, y in zip(a[1:], b[1:]))
-                   for a, b in zip(actual, reference)):
-                raise ValueError("BARNES final positions or velocities differ from native")
+            maximum, rms = barnes_difference(actual, reference, stdin)
+            result.update(max_error_over_softening=maximum, rms_error_over_softening=rms)
+            if maximum > 0.01 or rms > 0.0005:
+                raise ValueError("BARNES final particle state exceeds native comparison bounds")
             result["method"] = "final particle state vs native"
         elif bench.startswith("OCEAN-"):
             actual, reference = ocean(simulated), ocean(native)

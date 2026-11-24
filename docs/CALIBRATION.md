@@ -144,7 +144,11 @@ one verification case at a time and retains its evidence under
 | LU-NOCONT | `-t`, solve with the factors and check against the known solution. Require `TEST PASSED`. |
 | RADIX | `-t`, upstream sorted-key check after digit passes. Require `PASSED: All keys in place.` |
 | OCEAN-CONT and OCEAN-NOCONT | `-o`, record the final residual for each multigrid solve. Require finite residuals below the configured tolerance and match the native run's solve count, levels and residuals (relative tolerance `1e-5`, absolute `1e-12`). |
-| BARNES | Run the same diagnostic binary natively and under gem5. Check final timestep, body count, finite states and total mass. Compare every body's mass, position and velocity in stable body-array order (position and velocity relative tolerance `1e-8`, absolute `1e-10`). The diagnostic build prints its snapshot after the workers join. |
+| BARNES | Run the same diagnostic binary natively and under gem5. Check final timestep, body count, finite states and total mass. Require exact per-body masses. For each body's position and velocity, take the larger of the position error norm and the velocity error norm times one timestep. Require its maximum to be at most 1% of the softening length and its RMS to be at most 0.05%. The diagnostic build prints its snapshot after the workers join. |
+
+Native BARNES repeats showed small differences in the four-worker approximate
+force calculation, so the comparison records both numerical error measurements
+and applies the bounds above.
 
 ```bash
 PERSON=person1  # set to person1, person2 or person3
