@@ -13,11 +13,11 @@ from tempfile import NamedTemporaryFile
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from parse_stats import parse_run
-from scripts.run_provenance import TREE_FIELDS
+from scripts.run_provenance import TREE_FIELDS, sha256
 
 
 PROVENANCE_FIELDS = ("gem5_sha256", *TREE_FIELDS, "benchmark_sha256", "seed", "config_sha256",
-                     "args", "extra_args", "roi", "guest")
+                     "args", "extra_args", "roi", "guest", "stdin_sha256", "experiments_conf_sha256")
 
 
 def needs_write(target, payload, metadata, force):
@@ -53,7 +53,14 @@ def export_run(run, data, dry_run=False, force=False):
         if not re.fullmatch(r"[A-Za-z0-9_][A-Za-z0-9_.+-]*", name):
             raise ValueError(f"invalid output path component: {name!r}")
     target = data / variant / f"{suite}_{bench}_c{int(metadata['cores'])}.json"
-    payload = (json.dumps({"run": metadata, "stats": stats}, indent=2, sort_keys=True,
+    export = {"run": metadata, "stats": stats}
+    evidence = run / "correctness.json"
+    if evidence.is_file():
+        correctness = json.loads(evidence.read_text())
+        if correctness["measurement_sha256"] != sha256(run / "run.json"):
+            raise ValueError(f"{run}: correctness evidence belongs to a different measurement")
+        export["correctness"] = correctness
+    payload = (json.dumps(export, indent=2, sort_keys=True,
                           allow_nan=False) + "\n").encode("utf-8")
     if dry_run:
         if needs_write(target, payload, metadata, force):

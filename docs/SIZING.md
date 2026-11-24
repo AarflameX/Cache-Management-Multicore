@@ -1,10 +1,7 @@
 # Four-core baseline-v2 sizing
 
-Run S1 first. Compare the four-core results before choosing S2 for overnight
-runs. The sizing configs use the same eight ROI benchmarks and set a 14,400-second
-wall timeout per job. The commands below use fresh variants for both tiers
-so the runner cannot skip jobs completed with the old L1 indexing.
-The configuration creates two 256 KiB L2 banks
+Calibration starts at S0. The S1 and S2 configs cover the same eight ROI
+benchmarks and set a 14,400-second wall timeout per job. The configuration creates two 256 KiB L2 banks
 (512 KiB aggregate). Array sizes below describe data footprints. Cache residency
 also depends on access order, sharing, and bank mapping.
 
@@ -103,70 +100,7 @@ for n in 2048 6144; do
 done
 ```
 
-## Run in tmux
+## Calibration execution
 
-From the repository root, open a persistent shell with:
-
-```sh
-tmux new-session -s sizing-v2
-```
-
-Inside tmux, set the runner name and run S1:
-
-```sh
-RUNNER="$(hostname)"
-./run_experiment.sh --conf experiments_sizing_s1.conf --variant sizing-s1-l1fix \
-  --cores "4" --jobs 3 --seed 5489 --runner "$RUNNER"
-```
-
-Run S2 once S1 finishes, using the same machine and runner name for a comparable
-measurement:
-
-```sh
-./run_experiment.sh --conf experiments_sizing_s2.conf --variant sizing-s2-l1fix \
-  --cores "4" --jobs 3 --seed 5489 --runner "$RUNNER"
-```
-
-Detach with `Ctrl+B` followed by `D`. Reattach with
-`tmux attach-session -t sizing-v2`. Add `--dry-run` to either runner command
-to print the scheduled jobs without launching gem5.
-
-## Compare completed jobs
-
-The command reads the runner's two summaries. Miss rates are fractions.
-Blank optional counters print as `NA`. A failed or incomplete job has no
-summary row, and its failure may be listed in the tier's `failed.txt`.
-
-```sh
-python3 - <<'PY'
-import csv
-import sys
-from pathlib import Path
-
-fields = ("wall_seconds", "instructions", "simSeconds", "L1D_MPKI",
-          "L1D_miss_rate", "L2_miss_rate", "L1_invalidations_per_kinst")
-table = [("variant", "job", *fields)]
-for variant in ("sizing-s1-l1fix", "sizing-s2-l1fix"):
-    path = Path("results") / variant / "summary.csv"
-    if not path.is_file():
-        print(f"Missing summary: {path}", file=sys.stderr)
-        continue
-    with path.open(newline="") as stream:
-        for row in csv.DictReader(stream):
-            job = f"{row['suite']}_{row['benchmark']}_c{row['cores']}"
-            values = []
-            for field in fields:
-                value = row.get(field, "")
-                if not value:
-                    values.append("NA")
-                elif field == "instructions":
-                    values.append(value)
-                else:
-                    values.append(f"{float(value):.6g}")
-            table.append((variant, job, *values))
-table[1:] = sorted(table[1:], key=lambda row: (row[1], row[0]))
-widths = [max(map(len, column)) for column in zip(*table)]
-for row in table:
-    print("  ".join(f"{value:<{width}}" for value, width in zip(row, widths)).rstrip())
-PY
-```
+Use the [calibration runbook](CALIBRATION.md) for isolated measurements, the
+three teammate assignments, correctness checks, and consolidated results.

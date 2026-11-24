@@ -46,9 +46,17 @@ COHERENCE_EVENTS = {
 }
 L1_OUTGOING_BUFFERS = ("requestFromL1Cache", "responseFromL1Cache", "unblockFromL1Cache")
 COHERENCE_FIELDS = [*COHERENCE_EVENTS, "L1_outgoing_msgs"]
+REPLACEMENT_EVENTS = {
+    "L1_replacements": ("L1Cache_Controller.L1_Replacement::total",),
+    "L2_replacement_events": ("L2Cache_Controller.L2_Replacement::total",),
+    "L2_clean_replacement_events": ("L2Cache_Controller.L2_Replacement_clean::total",),
+}
 COHERENCE_VECTOR_NAMES = {PREFIX + "L1Cache_Controller." + event
                           for events in COHERENCE_EVENTS.values() for event in events}
 FIELDS += [name for field in COHERENCE_FIELDS for name in (field, field + "_per_kinst")]
+
+FIELDS += ["simTicks", "sim_seconds_from_ticks", "IPC", "peak_rss_kib",
+           *REPLACEMENT_EVENTS, "L2_replacements"]
 
 
 def parse_run(run):
@@ -114,6 +122,11 @@ def parse_run(run):
             values.append(int(value) if integer else float(value))
         return sum(values)
 
+    def optional_counts(names):
+        if all(name in block for name in names for block in blocks[:roi]):
+            return sum(total(name, True) for name in names)
+        return ""
+
     def counters(controller, index, cache):
         base = f"{PREFIX}{controller}{index}.{cache}.m_demand_"
         return total(base + "hits", True), total(base + "misses", True)
@@ -126,6 +139,27 @@ def parse_run(run):
     row["wall_seconds"] = wall if wall is not None else ""
     row["instructions"] = sum(total(f"board.processor.cores{core}.core.commitStats0.numInsts", True)
                               for core in range(cores))
+    row["simTicks"] = optional_counts(["simTicks"])
+    frequencies = {block.get("simFreq") for block in blocks[:roi]}
+    row["sim_seconds_from_ticks"] = ""
+    if len(frequencies) == 1 and None not in frequencies and row["simTicks"] != "":
+        frequency = total("simFreq", True) // roi
+        if frequency:
+            row["sim_seconds_from_ticks"] = row["simTicks"] / frequency
+    cycles = optional_counts([f"board.processor.cores{core}.core.numCycles"
+                              for core in range(cores)])
+    row["IPC"] = row["instructions"] / cycles if cycles else ""
+    for field, events in REPLACEMENT_EVENTS.items():
+        row[field] = optional_counts([PREFIX + event for event in events])
+    l2_events = (row["L2_replacement_events"], row["L2_clean_replacement_events"])
+    row["L2_replacements"] = sum(l2_events) if "" not in l2_events else ""
+    rss = run / "peak_rss_kib.txt"
+    row["peak_rss_kib"] = ""
+    if rss.is_file():
+        rss_kib = int(rss.read_text().strip())
+        if rss_kib <= 0:
+            raise ValueError("peak_rss_kib.txt must contain a positive KiB count")
+        row["peak_rss_kib"] = rss_kib
     l1_hits = l1_misses = 0
     accesses = []
     for core in range(cores):

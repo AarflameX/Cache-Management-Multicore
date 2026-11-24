@@ -12,8 +12,11 @@ args = sys.argv[1:]
 index = args.index('--args') if '--args' in args else len(args)
 args[index:index] = [*shlex.split(os.environ['EXPERIMENT_EXTRA']),
                      '--seed', os.environ['EXPERIMENT_SEED']]
-os.execv(os.environ['EXPERIMENT_GEM5'], [os.environ['EXPERIMENT_GEM5'],
-         '--outdir=' + os.environ['EXPERIMENT_OUT'], *args])
+out = os.environ['EXPERIMENT_OUT']
+command = [os.environ['EXPERIMENT_GEM5'], '--outdir=' + out, *args]
+if os.environ.get('EXPERIMENT_HOST_RSS') == '1':
+    command = ['/usr/bin/time', '-f', '%M', '-o', out + '/peak_rss_kib.txt', *command]
+os.execv(command[0], command)
 PY
 fi
 
@@ -26,6 +29,9 @@ if [[ ${1:-} == --worker ]]; then
     out="$EXPERIMENT_BASE/$name"
     status="$EXPERIMENT_STATE/$name.status"
     if [[ -f "$out/stats.txt" && -f "$out/DONE" && ! -f "$out/FAILED" ]]; then
+        if [[ $EXPERIMENT_HOST_RSS == 1 && ! -s "$out/peak_rss_kib.txt" ]]; then
+            die "$out has no peak RSS measurement; use a new --variant"
+        fi
         python3 "$repo/scripts/run_provenance.py" check "$out" "$EXPERIMENT_STATE/$name.json"
         echo skipped > "$status"
         echo "SKIP $name"
@@ -77,9 +83,11 @@ PYMETA
     EXPERIMENT_STARTED_MONO=$(python3 -c 'import time; print(time.monotonic())')
     # Prepare private stdin/data copies and tokenize args without evaluating shell code.
     if ! python3 - "$repo" "$out" "$EXPERIMENT_STATE/$name.json" <<'PY' > "$out/command.nul" 2> "$out/run.log"
-import datetime, json, pathlib, shlex, shutil, sys
+import datetime, hashlib, json, pathlib, shlex, shutil, sys
 repo, out, metadata = sys.argv[1:]
 root, run = pathlib.Path(repo), pathlib.Path(out)
+sys.path.insert(0, str(root / "scripts"))
+from staged_workload import experiment_stdin
 meta = json.loads(pathlib.Path(metadata).read_text())
 suite, bench, core, roi, resolved_args = (str(meta[key]) for key in
                                          ('suite', 'benchmark', 'cores', 'roi', 'args'))
@@ -97,16 +105,10 @@ if '<' in tokens:
     source = pathlib.Path(tokens[index + 1])
     if not source.is_absolute():
         source = root / source
-    data = source.read_text()
-    if bench in ('WATER-NSQUARED', 'WATER-SPATIAL'):
-        fields = data.split()
-        fields[8] = core
-        data = ' '.join(fields) + '\n'
-    elif bench in ('BARNES', 'FMM'):
-        lines = data.splitlines()
-        lines[11 if bench == 'BARNES' else 4] = core
-        data = '\n'.join(lines) + '\n'
-    (run / 'stdin.in').write_text(data)
+    stdin = experiment_stdin(source, bench, core).encode()
+    (run / 'stdin.in').write_bytes(stdin)
+    meta["stdin_sha256"] = hashlib.sha256(stdin).hexdigest()
+    (run / 'run.json').write_text(json.dumps(meta, indent=2) + '\n')
     command += ['--input', str(run / 'stdin.in')]
     del tokens[index:]
 source_names = {'WATER-NSQUARED': 'water-nsquared', 'WATER-SPATIAL': 'water-spatial',
@@ -159,6 +161,8 @@ PY
     elif (( code != 0 )); then
         reason=$(tail -n 1 run.log)
         fail "exit status $code: $reason (see run.log)"
+    elif [[ $EXPERIMENT_HOST_RSS == 1 && ! -s peak_rss_kib.txt ]]; then
+        fail 'missing gem5 peak RSS measurement'
     elif ! python3 "$repo/parse_stats.py" --validate "$out" >> run.log 2>&1; then
         reason=$(tail -n 1 run.log)
         fail "statistics parsing failed: $reason"
@@ -180,6 +184,7 @@ conf="$repo/experiments.conf"
 filter='.*'
 results=results
 dry=0
+host_rss=0
 retry_failed=0
 seed=5489
 runner=$(hostname)
@@ -195,11 +200,12 @@ while (( $# )); do
             esac
             shift 2 ;;
         --retry-failed) retry_failed=1; shift ;;
+        --host-rss) host_rss=1; shift ;;
         --dry-run) dry=1; shift ;;
         -h|--help)
             echo 'Usage: ./run_experiment.sh [--cores "2 4 8"] [--variant NAME]'
             echo '  [--extra-args "..."] [--gem5-bin PATH] [--jobs N] [--conf FILE]'
-            echo '  [--filter REGEX] [--dry-run] [--results DIR] [--seed N] [--runner NAME] [--retry-failed]'
+            echo '  [--filter REGEX] [--dry-run] [--results DIR] [--seed N] [--runner NAME] [--retry-failed] [--host-rss]'
             exit 0 ;;
         *) die "unknown option: $1" ;;
     esac
@@ -255,9 +261,9 @@ if (( dry )); then
             suite=${records[i]} benchmark=${records[i+1]}
             out="$base/${suite}_${benchmark}_c$core"
             args=${records[i+2]//\{cores\}/$core}
-            python3 - "$out" "${records[i+4]}" "$gem5" "$repo" "$suite" "$benchmark" "$core" "${records[i+3]}" "$args" "$extra" "$seed" <<'PYDRY'
+            python3 - "$out" "${records[i+4]}" "$gem5" "$repo" "$suite" "$benchmark" "$core" "${records[i+3]}" "$args" "$extra" "$seed" "$host_rss" <<'PYDRY'
 import json, pathlib, shlex, sys
-out, limit, gem5, repo, suite, bench, core, roi, args, extra, seed = sys.argv[1:]
+out, limit, gem5, repo, suite, bench, core, roi, args, extra, seed, host_rss = sys.argv[1:]
 sys.path.insert(0, repo + '/scripts')
 from staged_workload import experiment_layout, resolve_args
 args = resolve_args(args, repo)
@@ -272,7 +278,7 @@ if '<' in tokens:
 command += ['--args', *tokens]
 env = ['env', 'EXPERIMENT_GEM5_ADAPTER=1', 'EXPERIMENT_OUT=' + out,
        'EXPERIMENT_GEM5=' + gem5, 'EXPERIMENT_EXTRA=' + extra, 'EXPERIMENT_SEED=' + seed,
-       'GEM5_BIN=' + repo + '/run_experiment.sh']
+       'EXPERIMENT_HOST_RSS=' + host_rss, 'GEM5_BIN=' + repo + '/run_experiment.sh']
 print('# guest ' + json.dumps(experiment_layout(suite, bench, core, args, pathlib.Path(out))))
 print(f'# outdir={out}; timeout={limit}s')
 print('(cd ' + shlex.quote(out) + ' && ' + shlex.join(env + ['setsid'] + command) + ')')
@@ -282,6 +288,9 @@ PYDRY
     exit 0
 fi
 for utility in setsid xargs flock python3; do command -v "$utility" >/dev/null || die "$utility is required"; done
+if (( host_rss )); then
+    /usr/bin/time --version >/dev/null || die '--host-rss requires GNU /usr/bin/time'
+fi
 [[ -x "$gem5" ]] || die "gem5 is not executable: $gem5"
 [[ ! -L "$base" ]] || die "$base is a symlink; use a new --variant"
 mkdir -p "$base"
@@ -291,6 +300,7 @@ state=$(mktemp -d "$base/.sweep.XXXXXX")
 mkfifo "$state/timer"
 exec 9<> "$state/timer"
 export EXPERIMENT_BASE="$base" EXPERIMENT_STATE="$state"
+export EXPERIMENT_HOST_RSS="$host_rss"
 export EXPERIMENT_EXTRA="$extra" EXPERIMENT_GEM5="$gem5" EXPERIMENT_SEED="$seed"
 cleanup() {
     rm -f -- "$state"/*

@@ -137,7 +137,7 @@ def preflight(repo, base, state, gem5, conf, runner, seed, extra, tasks, retry="
     hashes = {}
     names = set()
     retries = []
-    for suite, bench, args, roi, _, core in zip(*(iter(items),) * 6, strict=True):
+    for suite, bench, args, roi, limit, core in zip(*(iter(items),) * 6, strict=True):
         name = f"{suite}_{bench}_c{core}"
         if name in names:
             raise ValueError(f"duplicate run directory name: {name}")
@@ -146,7 +146,7 @@ def preflight(repo, base, state, gem5, conf, runner, seed, extra, tasks, retry="
         if binary not in hashes:
             hashes[binary] = sha256(binary)
         meta = dict(common, suite=suite, benchmark=bench, cores=int(core), variant=base.name,
-                    roi=int(roi), args=resolve_args(args.replace("{cores}", core), repo),
+                    roi=int(roi), timeout_seconds=int(limit), args=resolve_args(args.replace("{cores}", core), repo),
                     benchmark_sha256=hashes[binary])
         run = base / name
         meta["guest"] = experiment_layout(suite, bench, core, meta["args"], run)

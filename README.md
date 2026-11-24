@@ -95,6 +95,9 @@ benchmarks/<suite>/
 
 ## Running experiments
 
+For the corrected four-core baseline calibration, use the
+[three-person calibration runbook](docs/CALIBRATION.md).
+
 `experiments.conf` lists `suite|benchmark|args|roi|timeout_sec`; see the benchmark
 inputs table below for sizing measurements and pending cases. Lines starting
 with `#` are ignored. `{cores}` matches workload workers to the simulated cores;

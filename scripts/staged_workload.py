@@ -40,6 +40,19 @@ def resolve_args(template, repo):
     return shlex.join(token.replace("{repo}", str(repo)) for token in shlex.split(template))
 
 
+def experiment_stdin(source, bench, cores):
+    data = source.read_text()
+    if bench in ("WATER-NSQUARED", "WATER-SPATIAL"):
+        fields = data.split()
+        fields[8] = str(cores)
+        return " ".join(fields) + "\n"
+    if bench in ("BARNES", "FMM"):
+        lines = data.splitlines()
+        lines[11 if bench == "BARNES" else 4] = str(cores)
+        return "\n".join(lines) + "\n"
+    return data
+
+
 def experiment_layout(suite, bench, core, args, out):
     tokens = shlex.split(args)
     stdin = None

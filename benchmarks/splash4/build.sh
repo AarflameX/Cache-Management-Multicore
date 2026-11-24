@@ -49,6 +49,19 @@ case "${ENABLE_ROI:-0}" in
         ;;
     *) echo 'ERROR: ENABLE_ROI must be 0 or 1' >&2; exit 1 ;;
 esac
+# Build a separate BARNES diagnostic binary for native and SE checks.
+if [[ -n ${BARNES_VERIFY_DIR:-} ]]; then
+    [[ ${ENABLE_ROI:-0} == 0 && $# == 1 && $1 == BARNES ]] || {
+        echo 'ERROR: BARNES_VERIFY_DIR requires the non-ROI BARNES target' >&2
+        exit 1
+    }
+    patch="$suite_dir/barnes-verify.patch"
+    if ! git -C "$source_dir" apply --reverse --check "$patch" 2>/dev/null; then
+        git -C "$source_dir" apply "$patch"
+    fi
+    output_dir=$BARNES_VERIFY_DIR
+    roi_flags=' -DBARNES_VERIFY'
+fi
 # Optional target selection also makes small non-ROI rebuilds possible.
 for requested in "$@"; do
     case "$requested" in

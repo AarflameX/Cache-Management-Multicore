@@ -85,6 +85,23 @@ class ParseStatsTests(unittest.TestCase):
         self.assertEqual(row['wall_seconds'], 2.5)
         self.assertNotIn('core2_L1D_accesses', row)
 
+    def test_calibration_metrics_use_roi_and_host_rss(self):
+        first = block()
+        first.update(simTicks=10_000_000_001, simFreq=10**12)
+        for core in range(2):
+            first[f"board.processor.cores{core}.core.numCycles"] = 2000
+        first[PREFIX + "L1Cache_Controller.L1_Replacement::total"] = 7
+        first[PREFIX + "L2Cache_Controller.L2_Replacement::total"] = 0
+        first[PREFIX + "L2Cache_Controller.L2_Replacement_clean::total"] = 11
+        (self.run / "peak_rss_kib.txt").write_text("12345\n")
+        row = self.fixture([first, block()])
+        self.assertEqual(row["simTicks"], 10_000_000_001)
+        self.assertAlmostEqual(row["sim_seconds_from_ticks"], 0.010000000001)
+        self.assertEqual(row["IPC"], 0.75)
+        self.assertEqual(row["L1_replacements"], 7)
+        self.assertEqual(row["L2_replacements"], 11)
+        self.assertEqual(row["peak_rss_kib"], 12345)
+
     def test_volrend_sums_three_frames_ignores_exit(self):
         for name in ('VOLREND', 'volrend', 'VOLREND-NPL', 'volrend-npl'):
             with self.subTest(benchmark=name):

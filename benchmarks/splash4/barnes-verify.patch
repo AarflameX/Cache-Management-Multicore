@@ -1,0 +1,17 @@
+--- a/Splash-4/barnes/code.c.in
++++ b/Splash-4/barnes/code.c.in
+@@ -278,2 +278,14 @@
+    printf("COMPUTEEND    = %12lu\n",Global->computeend);
++
++#ifdef BARNES_VERIFY
++   printf("BARNES_CHECK %ld %.17g %ld\n", nbody, Local[0].tnow, Local[0].nstep);
++   for (long i = 0; i < nbody; i++) {
++      bodyptr p = &bodytab[i];
++      printf("BARNES_BODY %ld %.17g", i, Mass(p));
++      for (long axis = 0; axis < NDIM; axis++) {
++         printf(" %.17g %.17g", Pos(p)[axis], Vel(p)[axis]);
++      }
++      puts("");
++   }
++#endif
+    printf("COMPUTETIME   = %12lu\n",Global->computeend - Global->computestart);
