@@ -55,7 +55,21 @@ NUM_L2_BANKS = 2
 if parsed.cores <= 0 or parsed.cores % NUM_L2_BANKS:
     parser.error(f"--cores must be a positive multiple of {NUM_L2_BANKS}")
 
-cache_hierarchy = MESITwoLevelCacheHierarchy(
+
+class BaselineMESITwoLevelCacheHierarchy(MESITwoLevelCacheHierarchy):
+    def incorporate_cache(self, board):
+        super().incorporate_cache(board)
+        # gem5 v25.1.0.1 passes the byte count as the L1 bit position.
+        line_bytes = int(board.get_cache_line_size())
+        if line_bytes <= 0 or line_bytes & (line_bytes - 1):
+            raise ValueError("Ruby cache line size must be a positive power of two")
+        offset_bits = line_bytes.bit_length() - 1
+        for controller in self.ruby_system.l1_controllers:
+            controller.L1Icache.start_index_bit = offset_bits
+            controller.L1Dcache.start_index_bit = offset_bits
+
+
+cache_hierarchy = BaselineMESITwoLevelCacheHierarchy(
     l1i_size="32KiB", l1i_assoc=2,
     l1d_size="32KiB", l1d_assoc=2,
     l2_size="256KiB", l2_assoc=8,

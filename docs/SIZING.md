@@ -1,9 +1,10 @@
 # Four-core baseline-v2 sizing
 
 Run S1 first. Compare the four-core results before choosing S2 for overnight
-runs. The sizing configs use the same eight ROI benchmarks and set a 5,400-second
-wall timeout per job. Each tier has its own variant, so their identical job IDs
-land in distinct directories. The existing config creates two 256 KiB L2 banks
+runs. The sizing configs use the same eight ROI benchmarks and set a 14,400-second
+wall timeout per job. The commands below use fresh variants for both tiers
+so the runner cannot skip jobs completed with the old L1 indexing.
+The configuration creates two 256 KiB L2 banks
 (512 KiB aggregate). Array sizes below describe data footprints. Cache residency
 also depends on access order, sharing, and bank mapping.
 
@@ -114,7 +115,7 @@ Inside tmux, set the runner name and run S1:
 
 ```sh
 RUNNER="$(hostname)"
-./run_experiment.sh --conf experiments_sizing_s1.conf --variant sizing-s1 \
+./run_experiment.sh --conf experiments_sizing_s1.conf --variant sizing-s1-l1fix \
   --cores "4" --jobs 3 --seed 5489 --runner "$RUNNER"
 ```
 
@@ -122,7 +123,7 @@ Run S2 once S1 finishes, using the same machine and runner name for a comparable
 measurement:
 
 ```sh
-./run_experiment.sh --conf experiments_sizing_s2.conf --variant sizing-s2 \
+./run_experiment.sh --conf experiments_sizing_s2.conf --variant sizing-s2-l1fix \
   --cores "4" --jobs 3 --seed 5489 --runner "$RUNNER"
 ```
 
@@ -145,7 +146,7 @@ from pathlib import Path
 fields = ("wall_seconds", "instructions", "simSeconds", "L1D_MPKI",
           "L1D_miss_rate", "L2_miss_rate", "L1_invalidations_per_kinst")
 table = [("variant", "job", *fields)]
-for variant in ("sizing-s1", "sizing-s2"):
+for variant in ("sizing-s1-l1fix", "sizing-s2-l1fix"):
     path = Path("results") / variant / "summary.csv"
     if not path.is_file():
         print(f"Missing summary: {path}", file=sys.stderr)

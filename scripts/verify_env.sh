@@ -27,6 +27,7 @@ if ! "$repo/run_experiment.sh" --gem5-bin "$gem5" --conf "$work/smoke.conf" \
     fi
     exit 1
 fi
+python3 "$repo/scripts/check_cache_indexing.py" "$work/smoke/gap_bfs_c2" --cores 2
 python3 - "$work/smoke/summary.csv" <<'PY'
 import csv
 import sys

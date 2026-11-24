@@ -177,9 +177,13 @@ RADIOSITY is excluded: under gem5 it did not complete within 40 minutes at
 `-ae 2000.0 -en 0.005`). Its ROI patches and build support remain; the patches
 were validated natively.
 
-The L2 is 256 KiB over 2 banks at every core count. SPLASH apps have near-zero
-L2 miss rates, so L1D-side features mainly appear as L1-to-L2 latency and traffic
-savings. GAP has real L2 misses (6–12%). CHOLESKY and BARNES are inherently
+Each core has private 32 KiB, 2-way L1I and L1D caches. With 64-byte lines,
+each has 256 sets indexed by address bits 6–13. The shared L2 has two
+256 KiB, 8-way banks (512 KiB total at every core count). Bit 6 selects the
+bank and bits 7–15 select one of 512 sets within it.
+
+The measurements above predate the L1 indexing fix. Those runs recorded
+near-zero L2 miss rates for SPLASH and 6–12% for GAP. CHOLESKY and BARNES are inherently
 imbalanced; interpret aggregate cache results alongside per-core accesses.
 
 ### Generating CHOLESKY inputs

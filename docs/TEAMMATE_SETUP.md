@@ -155,11 +155,17 @@ When ready to run verification workloads, use:
 
 ```bash
 ./scripts/verify_env.sh "$GEM5_BIN"
-./scripts/cross_machine_check.sh "$(hostname)"
+./tests/run_cache_index_probe.sh
+./scripts/cross_machine_check.sh "$(hostname)-l1fix"
 ```
 
-The first command runs a two-core BFS smoke test with expected
-`simSeconds = 0.000108`. The second runs BFS
+The two-core BFS smoke checks the effective geometry in both config dumps.
+On the pinned local build its corrected ROI recorded `simSeconds = 0.000083`.
+The x86-64 probe cycles through three lines four times. At a 64-byte stride
+it expects three cold L1D misses and nine hits. At a 16 KiB stride all
+three lines compete for two ways in one set, giving twelve misses.
+
+The cross-machine check uses a fresh variant for the indexing fix and runs BFS
 `-g 10 -n 1`, OCEAN-CONT `-n34`, and FFT `-m10` at four cores and seed
 5489, using one job at a time in `results/xcheck-<runner>/`. Compare the
 three printed SHA-256 digests by job ID across machines. The script hashes
